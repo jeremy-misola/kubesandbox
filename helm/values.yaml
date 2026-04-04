@@ -78,23 +78,23 @@ ingress:
 # (see: https://gateway-api.sigs.k8s.io/guides/)
 httpRoute:
   # HTTPRoute enabled.
-  enabled: false
+  enabled: true
   # HTTPRoute annotations.
   annotations: {}
   # Which Gateways this Route is attached to.
   parentRefs:
-  - name: gateway
-    sectionName: http
-    # namespace: default
+  - name: kubesandbox
+    namespace: envoy-gateway-system
+    sectionName: https
   # Hostnames matching HTTP header.
   hostnames:
-  - chart-example.local
+  - kubesandbox.com
   # List of rules and filters applied.
   rules:
   - matches:
     - path:
         type: PathPrefix
-        value: /headers
+        value: /
   #   filters:
   #   - type: RequestHeaderModifier
   #     requestHeaderModifier:
@@ -164,7 +164,7 @@ affinity: {}
 # Requires Envoy Gateway and Gateway API resources
 authentication:
   # Enable OIDC authentication
-  enabled: false
+  enabled: true
   oidc:
     # Authentik application OIDC provider URL
     providerUrl: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"
