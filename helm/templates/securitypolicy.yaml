@@ -1,0 +1,38 @@
+{{- if .Values.authentication.enabled -}}
+{{- $fullName := include "helm.fullname" . -}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ $fullName }}-auth
+  labels:
+    {{- include "helm.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: {{ $fullName }}
+  
+  oidc:
+    provider:
+      url: {{ .Values.authentication.oidc.providerUrl }}
+    clientID: {{ .Values.authentication.oidc.clientId }}
+    clientSecret:
+      name: {{ .Values.authentication.oidc.clientSecret.name }}
+      namespace: {{ .Values.authentication.oidc.clientSecret.namespace }}
+    redirectURL: {{ .Values.authentication.oidc.redirectUrl }}
+    {{- if .Values.authentication.oidc.logoutPath }}
+    logoutPath: {{ .Values.authentication.oidc.logoutPath }}
+    {{- end }}
+    {{- if .Values.authentication.oidc.cookieNames }}
+    cookieNames:
+      {{- toYaml .Values.authentication.oidc.cookieNames | nindent 6 }}
+    {{- end }}
+  
+  {{- if .Values.authentication.claimToHeaders }}
+  claimToHeaders:
+    {{- range .Values.authentication.claimToHeaders }}
+    - claim: {{ .claim }}
+      header: {{ .header }}
+    {{- end }}
+  {{- end }}
+{{- end }}
