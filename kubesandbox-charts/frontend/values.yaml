@@ -177,7 +177,7 @@ authentication:
     # This secret is created by the Crossplane Terraform workspace
     clientSecret:
       name: "kubesandbox-frontend-client-secret"
-      namespace: "envoy-gateway-system"
+      namespace: "kubesandbox"
     # OAuth2 redirect URL (must match Authentik application configuration)
     redirectUrl: "https://kubesandbox.com/auth/callback"
     # Optional: logout path for signing out
