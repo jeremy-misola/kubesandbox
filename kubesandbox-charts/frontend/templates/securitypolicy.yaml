@@ -14,7 +14,7 @@ spec:
   
   oidc:
     provider:
-      url: {{ .Values.authentication.oidc.providerUrl }}
+      issuer: {{ .Values.authentication.oidc.issuer }}
     clientID: {{ .Values.authentication.oidc.clientId }}
     clientSecret:
       name: {{ .Values.authentication.oidc.clientSecret.name }}
@@ -27,12 +27,4 @@ spec:
     cookieNames:
       {{- toYaml .Values.authentication.oidc.cookieNames | nindent 6 }}
     {{- end }}
-  
-  {{- if .Values.authentication.claimToHeaders }}
-  claimToHeaders:
-    {{- range .Values.authentication.claimToHeaders }}
-    - claim: {{ .claim }}
-      header: {{ .header }}
-    {{- end }}
-  {{- end }}
 {{- end }}

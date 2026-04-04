@@ -169,8 +169,8 @@ authentication:
   # Enable OIDC authentication
   enabled: true
   oidc:
-    # Authentik application OIDC provider URL
-    providerUrl: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"
+    # Authentik application OIDC issuer URL
+    issuer: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"
     # OAuth2 client ID (must match Authentik application)
     clientId: "kubesandbox-frontend"
     # Kubernetes secret containing the client secret
@@ -182,23 +182,7 @@ authentication:
     redirectUrl: "https://kubesandbox.com/auth/callback"
     # Optional: logout path for signing out
     logoutPath: "/auth/logout"
-    # Optional: custom cookie names for session management
-    # cookieNames:
-    #   accessToken: "access_token"
-    #   idToken: "id_token"
-  
-  # Map JWT claims to HTTP headers forwarded to the application
-  # These headers can be read by the frontend to identify the user
-  claimToHeaders:
-    # User's email address
-    - claim: email
-      header: X-User-Email
-    # User's preferred username
-    - claim: preferred_username
-      header: X-User-Name
-    # User's unique identifier
-    - claim: sub
-      header: X-User-Id
-    # User's groups (for RBAC)
-    - claim: groups
-      header: X-User-Groups
+  # Optional: custom cookie names for session management
+  # cookieNames:
+  #   accessToken: "access_token"
+  #   idToken: "id_token"
