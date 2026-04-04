@@ -32,8 +32,16 @@ jobs:
           version: 'latest'
 
       - name: Run chart-releaser
+        id: cr
         uses: helm/chart-releaser-action@v1.6.0
         with:
           charts_dir: helm
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .cr-release-packages
+          publish_branch: gh-pages
