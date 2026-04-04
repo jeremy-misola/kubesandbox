@@ -87,12 +87,24 @@ httpRoute:
   # Hostnames matching HTTP header.
   hostnames:
   - kubesandbox.com
-  # List of rules and filters applied.
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /
+  # Public paths that don't require authentication
+  # These will be served without OIDC authentication
+  publicPaths:
+  - path: /
+    type: PathPrefix
+  - path: /health/livez
+    type: Exact
+  - path: /health/readyz
+    type: Exact
+  - path: /assets
+    type: PathPrefix
+  # Protected paths that require OIDC authentication
+  # SecurityPolicy will be applied to these paths only
+  protectedPaths:
+  - path: /terminal
+    type: PathPrefix
+  - path: /api
+    type: PathPrefix
   #   filters:
   #   - type: RequestHeaderModifier
   #     requestHeaderModifier:

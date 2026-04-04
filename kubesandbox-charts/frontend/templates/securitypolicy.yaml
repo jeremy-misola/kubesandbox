@@ -10,7 +10,7 @@ spec:
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute
-    name: {{ $fullName }}
+    name: {{ $fullName }}-protected
   
   oidc:
     provider:
