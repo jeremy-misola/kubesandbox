@@ -84,7 +84,6 @@ httpRoute:
   parentRefs:
   - name: kubesandbox
     namespace: envoy-gateway-system
-    sectionName: https
   # Hostnames matching HTTP header.
   hostnames:
   - kubesandbox.com
