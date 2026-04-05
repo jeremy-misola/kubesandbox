@@ -3,6 +3,17 @@ entries:
   kubesandbox-backend:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-04-05T00:47:51.884820064Z"
+    description: Backend API service for KubeSandbox - manages Kubernetes sandbox
+      sessions
+    digest: 4021019425e1935b31bf0ee17841cf49dd6926cb1a01b4893ff83c5156e303bc
+    name: kubesandbox-backend
+    type: application
+    urls:
+    - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-backend-0.1.3/kubesandbox-backend-0.1.3.tgz
+    version: 0.1.3
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-04-05T00:45:09.447981945Z"
     description: Backend API service for KubeSandbox - manages Kubernetes sandbox
       sessions
@@ -95,4 +106,4 @@ entries:
     urls:
     - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-frontend-0.1.1/kubesandbox-frontend-0.1.1.tgz
     version: 0.1.1
-generated: "2026-04-05T00:45:09.448003093Z"
+generated: "2026-04-05T00:47:51.884848528Z"
