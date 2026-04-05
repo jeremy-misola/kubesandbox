@@ -1,0 +1,23 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubesandbox-backend.fullname" . }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+rules:
+  # Permission to manage KubeSandboxSession CRDs
+  - apiGroups: ["platform.kubesandbox.com"]
+    resources:
+      - kubesandboxsessions
+      - kubesandboxsessions/status
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Permission to read secrets (for vcluster kubeconfig retrieval)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  # Permission to list namespaces
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+{{- end }}

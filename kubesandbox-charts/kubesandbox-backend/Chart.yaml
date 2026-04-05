@@ -1,0 +1,9 @@
+apiVersion: v2
+name: kubesandbox-backend
+description: Backend API service for KubeSandbox - manages Kubernetes sandbox sessions
+
+type: application
+
+version: 0.1.0
+
+appVersion: "1.0.0"
