@@ -5,7 +5,7 @@
 replicaCount: 1
 
 image:
-  repository: jurassicjey/kubesandbox-frontend
+  repository: jurassicjey/kubesandbox-backend
   pullPolicy: IfNotPresent
   tag: "latest"
 
