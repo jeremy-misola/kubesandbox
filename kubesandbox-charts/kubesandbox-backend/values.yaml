@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   repository: jurassicjey/kubesandbox-backend
-  pullPolicy: IfNotPresent
+  pullPolicy: backend
   tag: "latest"
 
 imagePullSecrets: []

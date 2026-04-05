@@ -4,6 +4,6 @@ description: Backend API service for KubeSandbox - manages Kubernetes sandbox se
 
 type: application
 
-version: 0.1.3
+version: 0.1.4
 
 appVersion: "1.0.0"
