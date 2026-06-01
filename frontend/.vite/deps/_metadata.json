@@ -1,0 +1,70 @@
+{
+  "hash": "59850496",
+  "configHash": "ce52b382",
+  "lockfileHash": "632e232d",
+  "browserHash": "4f98d76b",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "f3934e7f",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "e184bbe0",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "5d3d8a3d",
+      "needsInterop": true
+    },
+    "lucide-react": {
+      "src": "../../node_modules/lucide-react/dist/esm/lucide-react.mjs",
+      "file": "lucide-react.js",
+      "fileHash": "79bb09b6",
+      "needsInterop": false
+    },
+    "animejs": {
+      "src": "../../node_modules/animejs/dist/modules/index.js",
+      "file": "animejs.js",
+      "fileHash": "aeea8727",
+      "needsInterop": false
+    },
+    "react-hook-form": {
+      "src": "../../node_modules/react-hook-form/dist/index.esm.mjs",
+      "file": "react-hook-form.js",
+      "fileHash": "f3421771",
+      "needsInterop": false
+    },
+    "@hookform/resolvers/zod": {
+      "src": "../../node_modules/@hookform/resolvers/zod/dist/zod.mjs",
+      "file": "@hookform_resolvers_zod.js",
+      "fileHash": "7d64511e",
+      "needsInterop": false
+    },
+    "zod": {
+      "src": "../../node_modules/zod/index.js",
+      "file": "zod.js",
+      "fileHash": "6b910fc9",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-DR74UY3M": {
+      "file": "chunk-DR74UY3M.js"
+    },
+    "chunk-WEBDCK5Q": {
+      "file": "chunk-WEBDCK5Q.js"
+    },
+    "chunk-SJSMYI6Q": {
+      "file": "chunk-SJSMYI6Q.js"
+    },
+    "chunk-G3PMV62Z": {
+      "file": "chunk-G3PMV62Z.js"
+    }
+  }
+}

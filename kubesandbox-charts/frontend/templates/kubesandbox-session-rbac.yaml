@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-kubesandbox-session-access
+  annotations:
+    argocd.argoproj.io/sync-wave: "17"
+  labels:
+    rbac.crossplane.io/aggregate-to-crossplane: "true"
+rules:
+  - apiGroups:
+      - platform.kubesandbox.com
+    resources:
+      - kubesandboxsessions
+      - kubesandboxsessions/status
+      - kubesandboxsessions/finalizers
+      - xkubesandboxsessions
+      - xkubesandboxsessions/status
+      - xkubesandboxsessions/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+      - deletecollection
