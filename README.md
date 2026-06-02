@@ -1,5 +1,9 @@
 # KubeSandbox
 
+## Demo
+
+Work in progress, URL to come: kubesandbox.com
+
 **On-demand Kubernetes playgrounds with isolated virtual clusters**
 
 KubeSandbox provides ephemeral, self-service Kubernetes environments that spin up in seconds. Each session gets its own virtual cluster (vcluster), web-based terminal, and automatic cleanup — perfect for learning, workshops, demos, and experimentation.
