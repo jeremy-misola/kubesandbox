@@ -2,7 +2,7 @@
 
 ## Demo
 
-Work in progress, URL to come: kubesandbox.com
+Work in progress, URL to come: [https://kubesandbox.com](https://kubesandbox.com)
 
 **On-demand Kubernetes playgrounds with isolated virtual clusters**
 
