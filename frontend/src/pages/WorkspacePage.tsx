@@ -157,7 +157,23 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ sessionName, onNav
     }
   }, []);
 
-  if (!selectedSession) return null;
+  if (!selectedSession) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 animate-fade-in font-mono text-[12px]">
+        <Loader2 className="w-8 h-8 animate-spin text-accent opacity-60" />
+        <div className="flex flex-col items-center gap-1 text-center">
+          <span className="text-foreground font-bold tracking-wider uppercase text-[10px]">Loading workspace</span>
+          <span className="text-muted-foreground">Fetching session details for <span className="text-primary">{sessionName}</span>...</span>
+        </div>
+        <button
+          onClick={() => onNavigate('dashboard')}
+          className="mt-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-foreground rounded-xl border border-white/10 hover:border-white/20 flex items-center gap-1.5 text-[12px] font-semibold transition-all"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to dashboard
+        </button>
+      </div>
+    );
+  }
 
   // URL the Crossplane composition routes to:
   // HTTPRoute hostname: {claim-namespace}-{claim-name}.kubesandbox.com

@@ -52,18 +52,27 @@ export const KubeSandboxProvider: React.FC<{ children: React.ReactNode }> = ({ c
     window.location.reload();
   }, []);
 
+  // Sync context mockMode state whenever api's internal flag may have changed
+  const syncMockMode = useCallback(() => {
+    const apiMock = api.getMockMode();
+    setMockMode(apiMock);
+    setNetworkStatus(apiMock ? 'mocked' : 'connected');
+  }, []);
+
   const fetchUser = useCallback(async () => {
     try {
       const u = await api.getUser();
       setUser(u);
+      syncMockMode();
     } catch (err: any) {
+      syncMockMode(); // pick up any auto-mock-mode flip
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError("Could not resolve user session.");
       }
     }
-  }, []);
+  }, [syncMockMode]);
 
   const fetchSessions = useCallback(async () => {
     setLoading(true);
@@ -71,7 +80,9 @@ export const KubeSandboxProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const s = await api.getSessions();
       setSessions(s);
       setError(null);
+      syncMockMode();
     } catch (err: any) {
+      syncMockMode(); // pick up any auto-mock-mode flip
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
@@ -80,7 +91,7 @@ export const KubeSandboxProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [syncMockMode]);
 
   const fetchSessionDetail = useCallback(async (name: string) => {
     try {

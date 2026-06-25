@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { KubeSandboxProvider } from './context/KubeSandboxContext';
 import { BackgroundCanvas } from './components/BackgroundCanvas';
 import { AppShell } from './components/AppShell';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { LandingPage } from './pages/LandingPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CreateSessionPage } from './pages/CreateSessionPage';
@@ -87,9 +88,11 @@ const AppContent: React.FC = () => {
 
       {/* Primary Layout Frame */}
       <AppShell activePage={activePage} onNavigate={navigate}>
-        <div className={`transition-opacity duration-200 ${transitioning ? 'opacity-0' : 'opacity-100'}`}>
-          {renderActivePage()}
-        </div>
+        <ErrorBoundary>
+          <div className={`transition-opacity duration-200 ${transitioning ? 'opacity-0' : 'opacity-100'}`}>
+            {renderActivePage()}
+          </div>
+        </ErrorBoundary>
       </AppShell>
     </div>
   );
