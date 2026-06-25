@@ -13,11 +13,8 @@ import {
   ChevronUp,
   RefreshCw,
   Play,
-  CheckCircle2,
-  Circle,
-  Loader2
 } from 'lucide-react';
-import { animate, stagger, createTimeline } from 'animejs';
+import { animate, stagger } from 'animejs';
 
 interface SessionDetailPageProps {
   sessionName: string;

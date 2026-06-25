@@ -10,10 +10,7 @@ import {
   Database,
   ShieldCheck,
   ToggleLeft,
-  ToggleRight,
-  Wifi,
-  WifiOff,
-  Activity
+  ToggleRight
 } from 'lucide-react';
 import { animate, stagger } from 'animejs';
 

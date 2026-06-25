@@ -14,7 +14,7 @@ import {
   Cpu,
   HardDrive
 } from 'lucide-react';
-import { animate, stagger, createTimeline } from 'animejs';
+import { animate, stagger } from 'animejs';
 
 const dns1035Regex = /^[a-z]([-a-z0-9]*[a-z0-9])?$/;
 

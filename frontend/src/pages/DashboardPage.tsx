@@ -11,9 +11,8 @@ import {
   Clock,
   AlertCircle,
   ArrowUpRight,
-  Zap
 } from 'lucide-react';
-import { animate, stagger, createTimeline } from 'animejs';
+import { animate, stagger } from 'animejs';
 
 interface DashboardPageProps {
   onNavigate: (page: string) => void;
@@ -257,7 +256,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate, onSele
 
       {/* Session cards grid */}
       <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {sessions.map((session, index) => {
+        {sessions.map((session) => {
           const phase = getPhaseConfig(session.phase);
           return (
             <div

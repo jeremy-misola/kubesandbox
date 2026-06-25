@@ -147,6 +147,11 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 5
 
+# Environment variables injected into the deployment
+# These values can be overridden by the GitOps-Homelab values files
+env:
+  VITE_API_BASE: "/api/v1"
+
 # This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
   enabled: false

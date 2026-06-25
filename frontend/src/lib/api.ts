@@ -1,7 +1,9 @@
 import { mockEngine } from './mockEngine';
 import type { SessionResponse, UserResponse, KubeconfigResponse, SSEEvent } from './mockEngine';
 
-const API_BASE = 'http://localhost:8080/api/v1';
+// API base URL is configured at build time via VITE_API_BASE env var
+// In development it can be set in .env file, in production it's injected via Helm chart
+const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
 export class ApiError extends Error {
   status: number;
@@ -18,7 +20,7 @@ class ApiService {
 
   constructor() {
     const forced = localStorage.getItem('kubesandbox_force_mock');
-    this.isMockMode = forced === 'true' || forced === null; // Default to mock mode since cluster is offline
+    this.isMockMode = forced === 'true'; // Default to real API; only use mock if explicitly set
   }
 
   public setMockMode(enabled: boolean) {

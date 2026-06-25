@@ -10,10 +10,8 @@ import {
   Cloud,
   ChevronRight,
   Sparkles,
-  Zap,
-  Lock
 } from 'lucide-react';
-import { animate, stagger, createTimeline } from 'animejs';
+import { animate, stagger } from 'animejs';
 
 interface LandingPageProps {
   onNavigate: (page: string) => void;
@@ -28,13 +26,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   useEffect(() => {
     if (!heroRef.current) return;
     const els = heroRef.current.querySelectorAll('.hero-anim');
-    createTimeline({ defaults: { ease: 'out(4)' } })
-      .add(els, {
-        opacity:    [0, 1],
-        translateY: [28, 0],
-        duration:   700,
-      }, stagger(90))
-      .init();
+    animate(els, {
+      opacity:    [0, 1],
+      translateY: [28, 0],
+      duration:   700,
+      ease:       'out(4)',
+      delay:      stagger(90),
+    });
   }, []);
 
   /* Feature cards staggered entrance */
