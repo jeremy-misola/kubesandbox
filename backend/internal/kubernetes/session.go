@@ -20,6 +20,46 @@ type SessionClient struct {
 	namespace string
 }
 
+// sanitizeLabelValue converts an arbitrary string (e.g. an email address) into
+// a value that satisfies Kubernetes label constraints:
+// max 63 chars, alphanumerics plus [-._], must start and end with alphanumeric.
+// "@" → "-at-", any other invalid character → "-".
+func sanitizeLabelValue(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '@':
+			out = append(out, []byte("-at-")...)
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.':
+			out = append(out, c)
+		default:
+			out = append(out, '-')
+		}
+	}
+	// Trim leading/trailing non-alphanumeric characters
+	result := string(out)
+	for len(result) > 0 && !isAlphanumeric(result[0]) {
+		result = result[1:]
+	}
+	for len(result) > 0 && !isAlphanumeric(result[len(result)-1]) {
+		result = result[:len(result)-1]
+	}
+	// Enforce 63-char limit
+	if len(result) > 63 {
+		result = result[:63]
+		for len(result) > 0 && !isAlphanumeric(result[len(result)-1]) {
+			result = result[:len(result)-1]
+		}
+	}
+	return result
+}
+
+func isAlphanumeric(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
 // NewSessionClient creates a new session client
 func NewSessionClient(client *Client, namespace string) *SessionClient {
 	return &SessionClient{
@@ -33,7 +73,7 @@ func (s *SessionClient) List(ctx context.Context, ownerRef string) (*models.Sess
 	gvr := GetGVR()
 
 	labelSelector := labels.Set{
-		"kubesandbox.com/owner": ownerRef,
+		"kubesandbox.com/owner": sanitizeLabelValue(ownerRef),
 	}.AsSelector().String()
 
 	list, err := s.client.dynamicClient.Resource(gvr).Namespace(s.namespace).List(ctx, metav1.ListOptions{
@@ -94,6 +134,10 @@ func (s *SessionClient) Create(ctx context.Context, req *models.CreateSessionReq
 		resources.Memory = "512Mi"
 	}
 
+	// Calculate expiry time upfront so the UI can display it immediately,
+	// without waiting for a Crossplane status update.
+	expiresAt := time.Now().Add(time.Duration(ttlMinutes) * time.Minute).UTC().Format(time.RFC3339)
+
 	// Create the unstructured object
 	session := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -103,8 +147,13 @@ func (s *SessionClient) Create(ctx context.Context, req *models.CreateSessionReq
 				"name":      req.Name,
 				"namespace": s.namespace,
 				"labels": map[string]interface{}{
-					"kubesandbox.com/owner":  ownerRef,
+					// ownerRef is an email address; sanitize it for Kubernetes label constraints
+					// (@ and other special chars are not allowed). The raw value is kept in spec.ownerRef.
+					"kubesandbox.com/owner":  sanitizeLabelValue(ownerRef),
 					"kubesandbox.com/tenant": req.TenantRef,
+				},
+				"annotations": map[string]interface{}{
+					"kubesandbox.com/expires-at": expiresAt,
 				},
 			},
 			"spec": map[string]interface{}{
@@ -150,7 +199,7 @@ func (s *SessionClient) Watch(ctx context.Context, ownerRef string) (<-chan mode
 	gvr := GetGVR()
 
 	labelSelector := labels.Set{
-		"kubesandbox.com/owner": ownerRef,
+		"kubesandbox.com/owner": sanitizeLabelValue(ownerRef),
 	}.AsSelector().String()
 
 	watcher, err := s.client.dynamicClient.Resource(gvr).Namespace(s.namespace).Watch(ctx, metav1.ListOptions{
@@ -295,6 +344,14 @@ func (s *SessionClient) unstructuredToSession(obj *unstructured.Unstructured) (*
 		session.Status.VclusterRelease, _ = status["vclusterRelease"].(string)
 		session.Status.WorkspacePod, _ = status["workspacePod"].(string)
 		session.Status.WorkspaceReady, _ = status["workspaceReady"].(bool)
+	}
+
+	// If the composition hasn't written expiresAt to status yet, fall back to
+	// the annotation we set at creation time (creationTimestamp + ttlMinutes).
+	if session.Status.ExpiresAt == "" {
+		if annotations, ok := metadata["annotations"].(map[string]interface{}); ok {
+			session.Status.ExpiresAt, _ = annotations["kubesandbox.com/expires-at"].(string)
+		}
 	}
 
 	return session, nil
