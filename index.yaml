@@ -81,6 +81,16 @@ entries:
   kubesandbox-frontend:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-06-26T23:02:12.751018458Z"
+    description: A Helm chart for Kubernetes
+    digest: 70866a8e6deb5127ceb7fd5b221b48a8e20ca876cbd1e5e5fd9cfe7ea694b4df
+    name: kubesandbox-frontend
+    type: application
+    urls:
+    - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-frontend-0.1.8/kubesandbox-frontend-0.1.8.tgz
+    version: 0.1.8
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-06-25T13:58:54.958299642Z"
     description: A Helm chart for Kubernetes
     digest: 2147e74f276059545eaaaf20e0ed681a5245777d64cae47306bd02b236dcc5a7
@@ -149,4 +159,4 @@ entries:
     urls:
     - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-frontend-0.1.1/kubesandbox-frontend-0.1.1.tgz
     version: 0.1.1
-generated: "2026-06-26T21:19:25.766127942Z"
+generated: "2026-06-26T23:02:12.751058072Z"
