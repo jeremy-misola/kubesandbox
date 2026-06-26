@@ -1,138 +1,100 @@
+// Package models defines the API data transfer objects for KubeSandbox sessions
+// and the mapping to the platform.kubesandbox.com/v1alpha1 KubeSandboxSession
+// claim. The claim is the source of truth; these types are the JSON shapes the
+// backend exchanges with the frontend.
 package models
 
-import (
-	"time"
-)
+import "k8s.io/apimachinery/pkg/runtime/schema"
 
-// Profile enum values
+// CRD coordinates for the KubeSandboxSession claim.
 const (
-	ProfileStarter  = "starter"
-	ProfileStandard = "standard"
-	ProfileAdvanced = "advanced"
+	APIGroup   = "platform.kubesandbox.com"
+	APIVersion = "v1alpha1"
+	Kind       = "KubeSandboxSession"
+	Plural     = "kubesandboxsessions"
+
+	// DefaultWorkspaceImage matches the XRD default and the composition.
+	DefaultWorkspaceImage = "jurassicjey/ttyd-k8s:ttyd"
+
+	// TTL bounds mirror the XRD schema (minimum 15, maximum 1440, default 60).
+	DefaultTTLMinutes = 60
+	MinTTLMinutes     = 15
+	MaxTTLMinutes     = 1440
 )
 
-// Phase values
+// GVR is the GroupVersionResource used by the dynamic client.
+var GVR = schema.GroupVersionResource{
+	Group:    APIGroup,
+	Version:  APIVersion,
+	Resource: Plural,
+}
+
+// Profile controls the default resource shape of a session.
+type Profile string
+
 const (
-	PhaseProvisioning = "Provisioning"
-	PhaseReady        = "Ready"
-	PhaseError        = "Error"
-	PhaseUnknown      = "Unknown"
+	ProfileStarter  Profile = "starter"
+	ProfileStandard Profile = "standard"
+	ProfileAdvanced Profile = "advanced"
 )
 
-// SessionSpec defines the desired state of KubeSandboxSession
-type SessionSpec struct {
-	TenantRef      string           `json:"tenantRef"`
-	OwnerRef       string           `json:"ownerRef"`
-	Profile        string           `json:"profile"`
-	TTLMinutes     int              `json:"ttlMinutes,omitempty"`
-	WorkspaceImage string           `json:"workspaceImage,omitempty"`
-	StarterLabRef  string           `json:"starterLabRef,omitempty"`
-	Resources      SessionResources `json:"resources,omitempty"`
+// Resources is the CPU/memory request+limit applied to the shell pod.
+type Resources struct {
+	CPU    string `json:"cpu"`
+	Memory string `json:"memory"`
 }
 
-// SessionResources defines resource limits for the session
-type SessionResources struct {
-	CPU    string `json:"cpu,omitempty"`
-	Memory string `json:"memory,omitempty"`
+// profileResources maps each profile to its resource shape (per the plan).
+var profileResources = map[Profile]Resources{
+	ProfileStarter:  {CPU: "250m", Memory: "256Mi"},
+	ProfileStandard: {CPU: "500m", Memory: "512Mi"},
+	ProfileAdvanced: {CPU: "1", Memory: "1Gi"},
 }
 
-// SessionStatus defines the observed state of KubeSandboxSession
-type SessionStatus struct {
-	Phase            string `json:"phase,omitempty"`
-	Message          string `json:"message,omitempty"`
-	ExpiresAt        string `json:"expiresAt,omitempty"`
-	SessionNamespace string `json:"sessionNamespace,omitempty"`
-	VclusterRelease  string `json:"vclusterRelease,omitempty"`
-	WorkspacePod     string `json:"workspacePod,omitempty"`
-	WorkspaceReady   bool   `json:"workspaceReady,omitempty"`
+// Valid reports whether p is a known profile.
+func (p Profile) Valid() bool {
+	_, ok := profileResources[p]
+	return ok
 }
 
-// KubeSandboxSession is the Schema for the kubesandboxsessions API
-type KubeSandboxSession struct {
-	// APIVersion defines the versioned schema of this representation
-	APIVersion string `json:"apiVersion,omitempty"`
-	// Kind is a string value representing the REST resource
-	Kind string `json:"kind,omitempty"`
-
-	// Metadata
-	Name              string            `json:"name"`
-	Namespace         string            `json:"namespace"`
-	Labels            map[string]string `json:"labels,omitempty"`
-	Annotations       map[string]string `json:"annotations,omitempty"`
-	CreationTimestamp time.Time         `json:"creationTimestamp,omitempty"`
-
-	Spec   SessionSpec   `json:"spec,omitempty"`
-	Status SessionStatus `json:"status,omitempty"`
+// Resources returns the resource shape for the profile (zero value if unknown).
+func (p Profile) Resources() Resources {
+	return profileResources[p]
 }
 
-// KubeSandboxSessionList contains a list of KubeSandboxSession
-type KubeSandboxSessionList struct {
-	APIVersion string               `json:"apiVersion,omitempty"`
-	Kind       string               `json:"kind,omitempty"`
-	Items      []KubeSandboxSession `json:"items"`
-}
-
-// CreateSessionRequest is the request body for creating a session
+// CreateSessionRequest is the JSON body of POST /api/sessions.
 type CreateSessionRequest struct {
-	Name           string           `json:"name" validate:"required,dns1035"`
-	TenantRef      string           `json:"tenantRef" validate:"required"`
-	Profile        string           `json:"profile" validate:"required,oneof=starter standard advanced"`
-	TTLMinutes     int              `json:"ttlMinutes,omitempty" validate:"omitempty,min=15,max=1440"`
-	WorkspaceImage string           `json:"workspaceImage,omitempty" validate:"omitempty,max=255"`
-	StarterLabRef  string           `json:"starterLabRef,omitempty" validate:"omitempty,max=128"`
-	Resources      SessionResources `json:"resources,omitempty"`
+	Profile        Profile `json:"profile"`
+	TTLMinutes     int     `json:"ttlMinutes,omitempty"`
+	WorkspaceImage string  `json:"workspaceImage,omitempty"`
+	StarterLabRef  string  `json:"starterLabRef,omitempty"`
 }
 
-// SessionResponse is the response for session operations
-type SessionResponse struct {
-	Name             string           `json:"name"`
-	Namespace        string           `json:"namespace"`
-	Phase            string           `json:"phase"`
-	Message          string           `json:"message,omitempty"`
-	ExpiresAt        string           `json:"expiresAt,omitempty"`
-	SessionNamespace string           `json:"sessionNamespace,omitempty"`
-	VclusterRelease  string           `json:"vclusterRelease,omitempty"`
-	WorkspacePod     string           `json:"workspacePod,omitempty"`
-	WorkspaceReady   bool             `json:"workspaceReady"`
-	TenantRef        string           `json:"tenantRef"`
-	OwnerRef         string           `json:"ownerRef"`
-	Profile          string           `json:"profile"`
-	TTLMinutes       int              `json:"ttlMinutes"`
-	WorkspaceImage   string           `json:"workspaceImage"`
-	Resources        SessionResources `json:"resources"`
-	CreatedAt        string           `json:"createdAt"`
-}
+// Session is the API representation of a KubeSandboxSession returned to clients.
+type Session struct {
+	// ID is the public, opaque identifier and routing key: "{namespace}-{name}".
+	ID string `json:"id"`
+	// Name is the underlying opaque claim name, e.g. "s-1a2b3c4d".
+	Name string `json:"name"`
+	// Namespace is the claim namespace (the backend's configured namespace).
+	Namespace string `json:"namespace"`
 
-// SessionListResponse is the response for listing sessions
-type SessionListResponse struct {
-	Items []SessionResponse `json:"items"`
-	Total int               `json:"total"`
-}
+	TenantRef      string    `json:"tenantRef"`
+	OwnerRef       string    `json:"ownerRef"`
+	Profile        string    `json:"profile"`
+	TTLMinutes     int       `json:"ttlMinutes"`
+	WorkspaceImage string    `json:"workspaceImage"`
+	StarterLabRef  string    `json:"starterLabRef,omitempty"`
+	Resources      Resources `json:"resources"`
 
-// KubeconfigResponse is the response for kubeconfig download
-type KubeconfigResponse struct {
-	Kubeconfig string `json:"kubeconfig"`
-	Server     string `json:"server"`
-}
+	// Status fields surfaced from the claim's .status by Crossplane.
+	Phase            string `json:"phase"`
+	Message          string `json:"message,omitempty"`
+	WorkspaceReady   bool   `json:"workspaceReady"`
+	SessionNamespace string `json:"sessionNamespace,omitempty"`
+	ExpiresAt        string `json:"expiresAt,omitempty"`
 
-// ToResponse converts KubeSandboxSession to SessionResponse
-func (s *KubeSandboxSession) ToResponse() SessionResponse {
-	return SessionResponse{
-		Name:             s.Name,
-		Namespace:        s.Namespace,
-		Phase:            s.Status.Phase,
-		Message:          s.Status.Message,
-		ExpiresAt:        s.Status.ExpiresAt,
-		SessionNamespace: s.Status.SessionNamespace,
-		VclusterRelease:  s.Status.VclusterRelease,
-		WorkspacePod:     s.Status.WorkspacePod,
-		WorkspaceReady:   s.Status.WorkspaceReady,
-		TenantRef:        s.Spec.TenantRef,
-		OwnerRef:         s.Spec.OwnerRef,
-		Profile:          s.Spec.Profile,
-		TTLMinutes:       s.Spec.TTLMinutes,
-		WorkspaceImage:   s.Spec.WorkspaceImage,
-		Resources:        s.Spec.Resources,
-		CreatedAt:        s.CreationTimestamp.Format("2006-01-02T15:04:05Z"),
-	}
+	// URL is the browser terminal URL: "{PublicBaseURL}/s/{id}".
+	URL       string `json:"url,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
 }

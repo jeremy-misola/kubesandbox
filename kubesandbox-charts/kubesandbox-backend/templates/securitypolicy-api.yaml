@@ -1,0 +1,44 @@
+{{- if .Values.authentication.enabled -}}
+{{- $fullName := include "kubesandbox-backend.fullname" . -}}
+# JWT SecurityPolicy for the backend API (G1 identity source).
+#
+# Envoy Gateway's OIDC (oauth2) filter authenticates browsers but does NOT emit
+# X-User-* headers. This JWT policy validates the caller's bearer token against
+# Authentik's JWKS and maps claims into the headers the backend trusts
+# (claimToHeaders). It targets the backend's /api HTTPRoute.
+#
+# PREREQUISITES / CAVEATS:
+#   * Callers must present `Authorization: Bearer <token>`. The React SPA must
+#     attach the OIDC token to /api requests (cookie alone is not enough here).
+#   * Browser EventSource cannot set headers, so the SSE endpoint
+#     (/api/sessions/{id}/events) must be consumed with a fetch-stream client
+#     that sets Authorization, or be served on a separate cookie-OIDC route.
+#   * If Authentik is fronted by an internal CA, add a BackendTLSPolicy so Envoy
+#     trusts it when fetching JWKS.
+#   * `issuer` must equal the `iss` claim in issued tokens (mind split-DNS).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ $fullName }}-jwt
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ $fullName }}
+  jwt:
+    providers:
+      - name: {{ .Values.authentication.jwt.providerName | default "authentik" }}
+        issuer: {{ required "authentication.jwt.issuer is required when authentication.enabled" .Values.authentication.jwt.issuer | quote }}
+        {{- with .Values.authentication.jwt.audiences }}
+        audiences:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        remoteJWKS:
+          uri: {{ required "authentication.jwt.jwksUri is required when authentication.enabled" .Values.authentication.jwt.jwksUri | quote }}
+        {{- with .Values.authentication.jwt.claimToHeaders }}
+        claimToHeaders:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}

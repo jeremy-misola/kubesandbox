@@ -118,13 +118,44 @@ config:
   port: "8080"
   # Namespace where sessions are created
   namespace: "playground"
-  # Headers for authentication (injected by Envoy Gateway)
+  # Public origin used to build session URLs ({base}/s/{id})
+  publicBaseUrl: "https://kubesandbox.com"
+  # Headers for authentication (injected by Envoy Gateway JWT claimToHeaders)
   userEmailHeader: "X-User-Email"
   userNameHeader: "X-User-Name"
   userGroupsHeader: "X-User-Groups"
-  # TTL cleanup interval in minutes
+  # Stable subject id; preferred over email as ownerRef when present
+  userIdHeader: "X-User-Id"
+  # Maximum concurrent sessions per user
+  maxSessionsPerUser: "3"
+  # TTL cleanup interval in minutes (reserved for the G3 TTL loop)
   ttlCleanupInterval: "1"
 
 # RBAC configuration
 rbac:
   create: true
+
+# Authentication: JWT SecurityPolicy on the /api route (G1 identity source).
+# Disabled by default so installing the chart never breaks an existing route;
+# enable once the Authentik backend client / issuer is confirmed.
+authentication:
+  enabled: false
+  jwt:
+    providerName: authentik
+    # Token issuer (must match the `iss` claim). Example for an Authentik app:
+    #   https://auth.jeremymr.dev/application/o/kubesandbox-backend/
+    issuer: ""
+    # Authentik JWKS endpoint, typically the issuer + "jwks/"
+    jwksUri: ""
+    # Optional: enforce token audience(s). Empty = do not enforce.
+    audiences: []
+    # Map validated JWT claims into the X-User-* headers the backend trusts.
+    claimToHeaders:
+      - claim: sub
+        header: X-User-Id
+      - claim: email
+        header: X-User-Email
+      - claim: name
+        header: X-User-Name
+      - claim: groups
+        header: X-User-Groups

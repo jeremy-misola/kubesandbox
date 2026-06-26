@@ -1,99 +1,70 @@
 # KubeSandbox Backend
 
-A Go backend service for managing KubeSandbox sessions. This service provides a REST API to create, list, delete, and monitor Kubernetes sandbox sessions using the KubeSandboxSession CRD.
+The backend control service (G1) for KubeSandbox. It creates, lists, reads, and
+deletes `KubeSandboxSession` claims (`platform.kubesandbox.com/v1alpha1`) via the
+client-go **dynamic client**. Claims are the source of truth — there is no
+application database. Identity comes from Envoy-forwarded `X-User-*` headers.
 
-## Features
+## API
 
-- **Session Management**: Create, list, get, and delete sandbox sessions
-- **Real-time Updates**: Server-Sent Events (SSE) for session status changes
-- **Kubeconfig Download**: Retrieve vcluster kubeconfig for sessions
-- **TTL Cleanup**: Background worker to cleanup expired sessions
-- **Authentication**: Header-based authentication (via Envoy Gateway)
-- **Kubernetes Native**: Uses the KubeSandboxSession CRD
-
-## API Endpoints
+Health probes are served at the root (the kubelet hits the pod directly):
 
 | Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/sessions` | List all sessions for the authenticated user |
-| POST | `/api/v1/sessions` | Create a new session |
-| GET | `/api/v1/sessions/{name}` | Get a specific session |
-| DELETE | `/api/v1/sessions/{name}` | Delete a session |
-| GET | `/api/v1/sessions/{name}/kubeconfig` | Get vcluster kubeconfig |
-| GET | `/api/v1/sessions/events` | SSE stream for session updates |
-| GET | `/api/v1/user` | Get current authenticated user |
-| GET | `/health` | Health check endpoint |
+|---|---|---|
+| GET | `/health`, `/healthz` | Liveness/readiness probe. |
 
-## Configuration
+The product API is served under `/api` (the Envoy HTTPRoute forwards the `/api`
+prefix unchanged) and requires identity headers:
 
-Environment variables:
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/sessions` | Create a session. Body: `{ "profile": "standard", "ttlMinutes": 60, "workspaceImage": "...", "starterLabRef": "..." }`. |
+| GET | `/api/sessions` | List the caller's sessions. |
+| GET | `/api/sessions/{id}` | Get one session the caller owns. |
+| DELETE | `/api/sessions/{id}` | Delete one session the caller owns. |
+| GET | `/api/sessions/{id}/events` | SSE stream of the session's lifecycle. |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8080` | Server port |
-| `NAMESPACE` | `playground` | Namespace for sessions |
-| `USER_EMAIL_HEADER` | `X-User-Email` | Header for user email |
-| `USER_NAME_HEADER` | `X-User-Name` | Header for user name |
-| `USER_GROUPS_HEADER` | `X-User-Groups` | Header for user groups |
-| `TTL_CLEANUP_INTERVAL` | `1` | Cleanup interval in minutes |
+`{id}` is the opaque public id `{namespace}-{name}` (e.g. `playground-s-1a2b3c4d`),
+which is also the routing path: the terminal lives at `{PublicBaseURL}/s/{id}`.
 
-## Development
+Ownership: list/get/delete/events are scoped to the caller (`ownerRef == sub`).
+Unknown, unowned, and malformed ids all return `404` (no existence leak).
 
-```bash
-# Run locally
-go run ./cmd/main.go
+## Configuration (env)
 
-# Build
-go build -o backend ./cmd/main.go
+| Var | Default | Notes |
+|---|---|---|
+| `PORT` | `8080` | Listen port. |
+| `NAMESPACE` | `playground` | Namespace where claims are created. |
+| `PUBLIC_BASE_URL` | `https://kubesandbox.com` | Origin used to build session URLs. |
+| `USER_EMAIL_HEADER` | `X-User-Email` | Identity header (primary subject fallback). |
+| `USER_NAME_HEADER` | `X-User-Name` | Display name header. |
+| `USER_GROUPS_HEADER` | `X-User-Groups` | Comma-separated groups header. |
+| `USER_ID_HEADER` | `X-User-Id` | Optional stable subject (preferred over email). |
+| `MAX_SESSIONS_PER_USER` | `3` | Per-user concurrency cap. |
+| `TTL_CLEANUP_INTERVAL` | `1` | Minutes; reserved for the G3 TTL loop (not run in G1). |
 
-# Build Docker image
-docker build -t kubesandbox-backend .
+`tenantRef = ownerRef = subject` (1 tenant = 1 user).
+
+## Build & run
+
+```sh
+go mod tidy            # generate go.sum (network required, run once and commit)
+go build ./...
+go vet ./...
+go run ./cmd/server    # uses your kubeconfig when out of cluster
 ```
 
-## Authentication
+The container image is built from `backend/Dockerfile` by
+`.github/workflows/backend.yml` and pushed as `jurassicjey/kubesandbox-backend`.
 
-The backend expects authentication headers to be injected by Envoy Gateway. In development mode, you can use:
+## Scope
 
-```bash
-# Development mode (bypasses auth)
-curl -H "X-Development-Mode: true" http://localhost:8080/api/v1/sessions
+This is **G1 only**. Per-session ownership ext-authz (`/authz`, G2), the in-process
+TTL cleanup loop (G3), and the dedicated backend Authentik client / direct JWT
+validation (G4) are intentionally not implemented here — see `docs/03-implementation-plan.md`.
 
-# Mock user
-curl -H "X-Mock-User-Email: user@example.com" http://localhost:8080/api/v1/sessions
-```
+## Security note
 
-## RBAC
-
-The backend requires the following Kubernetes permissions:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: kubesandbox-backend
-rules:
-  - apiGroups: ["platform.kubesandbox.com"]
-    resources: ["kubesandboxsessions"]
-    verbs: ["get", "list", "watch", "create", "delete"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list"]
-```
-
-## Example Session Creation
-
-```bash
-curl -X POST http://localhost:8080/api/v1/sessions \
-  -H "Content-Type: application/json" \
-  -H "X-Development-Mode: true" \
-  -d '{
-    "name": "my-session",
-    "tenantRef": "demo-tenant",
-    "profile": "starter",
-    "ttlMinutes": 60
-  }'
-```
-
-## License
-
-MIT
+Identity is trusted from injected headers, so the gateway→backend path must be
+locked down (NetworkPolicy / mTLS) so callers cannot spoof `X-User-*`.

@@ -1,51 +1,70 @@
+// Package config loads runtime configuration from environment variables.
+//
+// All values are injected by the kubesandbox-backend Helm chart (see
+// kubesandbox-charts/kubesandbox-backend/values.yaml -> .Values.config). Every
+// option has a safe default so the binary also runs locally with no env set.
 package config
 
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
-// Config holds application configuration
+// Config is the fully-resolved backend configuration.
 type Config struct {
-	// Server configuration
+	// Port is the TCP port the HTTP server listens on.
 	Port string
+	// Namespace is where KubeSandboxSession claims are created and read.
+	Namespace string
+	// PublicBaseURL is the externally reachable origin used to build session
+	// URLs, e.g. https://kubesandbox.com -> https://kubesandbox.com/s/{id}.
+	PublicBaseURL string
 
-	// Kubernetes configuration
-	Namespace string // Namespace where sessions are created (default: playground)
-
-	// Headers configuration (injected by Envoy Gateway)
+	// Identity headers injected by Envoy Gateway after edge OIDC (G1).
 	UserEmailHeader  string
 	UserNameHeader   string
 	UserGroupsHeader string
+	UserIDHeader     string
 
-	// TTL cleanup interval in minutes
-	TTLCleanupInterval int
+	// TTLCleanupInterval is reserved for the G3 TTL loop (not run in G1).
+	TTLCleanupInterval time.Duration
+	// MaxSessionsPerUser caps concurrent sessions per owner.
+	MaxSessionsPerUser int
 }
 
-// Load reads configuration from environment variables
-func Load() *Config {
-	return &Config{
-		Port:               getEnv("PORT", "8080"),
-		Namespace:          getEnv("NAMESPACE", "playground"),
-		UserEmailHeader:    getEnv("USER_EMAIL_HEADER", "X-User-Email"),
-		UserNameHeader:     getEnv("USER_NAME_HEADER", "X-User-Name"),
-		UserGroupsHeader:   getEnv("USER_GROUPS_HEADER", "X-User-Groups"),
-		TTLCleanupInterval: getEnvInt("TTL_CLEANUP_INTERVAL", 1),
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
+	return def
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func getenvInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
 	}
-	return defaultValue
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }
 
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
-		}
+// Load reads configuration from the environment, applying defaults.
+func Load() Config {
+	c := Config{
+		Port:             getenv("PORT", "8080"),
+		Namespace:        getenv("NAMESPACE", "playground"),
+		PublicBaseURL:    getenv("PUBLIC_BASE_URL", "https://kubesandbox.com"),
+		UserEmailHeader:  getenv("USER_EMAIL_HEADER", "X-User-Email"),
+		UserNameHeader:   getenv("USER_NAME_HEADER", "X-User-Name"),
+		UserGroupsHeader: getenv("USER_GROUPS_HEADER", "X-User-Groups"),
+		UserIDHeader:     getenv("USER_ID_HEADER", "X-User-Id"),
+
+		TTLCleanupInterval: time.Duration(getenvInt("TTL_CLEANUP_INTERVAL", 1)) * time.Minute,
+		MaxSessionsPerUser: getenvInt("MAX_SESSIONS_PER_USER", 3),
 	}
-	return defaultValue
+	return c
 }
