@@ -182,7 +182,7 @@ export const WorkspacePage: React.FC<WorkspacePageProps> = ({ sessionName, onNav
 
   const renderTerminalBody = () => {
     if (!isReady) {
-      return <ProvisioningState message={selectedSession.message} />;
+      return <ProvisioningState message={selectedSession.message ?? 'Waiting for cluster reconciliation...'} />;
     }
 
     if (mockMode) {

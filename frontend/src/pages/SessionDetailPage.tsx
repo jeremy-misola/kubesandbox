@@ -81,7 +81,7 @@ export const SessionDetailPage: React.FC<SessionDetailPageProps> = ({ sessionNam
   /* Update step progress */
   useEffect(() => {
     if (!selectedSession) return;
-    const msg = selectedSession.message.toLowerCase();
+    const msg = (selectedSession.message ?? '').toLowerCase();
     let step = 0;
     if (selectedSession.phase === 'Ready')                                     step = 4;
     else if (msg.includes('network') || msg.includes('routing'))               step = 3;
@@ -97,7 +97,7 @@ export const SessionDetailPage: React.FC<SessionDetailPageProps> = ({ sessionNam
         : selectedSession.phase === 'Ready'
         ? 'success'
         : 'info';
-      return [...prev, { timestamp: new Date().toLocaleTimeString(), message: selectedSession.message, type, id: ++logIdCounter }];
+      return [...prev, { timestamp: new Date().toLocaleTimeString(), message: selectedSession.message ?? 'Waiting for status...', type, id: ++logIdCounter }];
     });
   }, [selectedSession]);
 
