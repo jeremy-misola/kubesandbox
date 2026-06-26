@@ -103,8 +103,11 @@ httpRoute:
   protectedPaths:
   - path: /terminal
     type: PathPrefix
-  - path: /api
-    type: PathPrefix
+  # NOTE: /api is intentionally NOT listed here. The kubesandbox-backend chart
+  # owns the /api HTTPRoute (with its JWT SecurityPolicy). Adding /api here makes
+  # the frontend's older protected route shadow the backend route (equal path
+  # specificity -> oldest route wins), sending /api to the frontend's OIDC and
+  # never reaching the backend's JWT policy.
   #   filters:
   #   - type: RequestHeaderModifier
   #     requestHeaderModifier:
