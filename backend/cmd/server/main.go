@@ -46,6 +46,12 @@ func main() {
 		// No write timeout: SSE responses are long-lived.
 	}
 
+	// Background TTL cleanup loop (G3): enforces status.expiresAt server-side.
+	// Cancelled on shutdown so the loop exits cleanly with the process.
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	ttl := k8s.NewTTLController(svc, cfg.TTLCleanupInterval)
+	go ttl.Run(bgCtx)
+
 	// Run the server.
 	go func() {
 		log.Printf("kubesandbox-backend listening on :%s (namespace=%s)", cfg.Port, cfg.Namespace)
@@ -60,6 +66,7 @@ func main() {
 	<-stop
 
 	log.Println("shutting down...")
+	bgCancel() // stop the TTL loop
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

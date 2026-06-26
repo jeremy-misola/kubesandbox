@@ -1,0 +1,44 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- $fullName := include "kubesandbox-backend.fullname" . -}}
+# NetworkPolicy for the backend control service.
+#
+# WHY THIS EXISTS (security-critical): the backend trusts the X-User-* identity
+# headers Envoy injects after edge auth (G1). Without an ingress restriction, any
+# pod in the cluster that can reach this Service could set X-User-Id itself and
+# (a) act as any owner on /api and (b) call /authz to authorize into anyone's
+# session. This policy closes that hole by allowing ingress ONLY from the Envoy
+# Gateway namespace, so spoofed identity headers cannot originate from arbitrary
+# workloads.
+#
+# This mirrors the per-session NetworkPolicy the Crossplane composition already
+# applies (and which is verified working on prod-k3s), so enforcement behaviour is
+# known on this cluster. k3s enforces NetworkPolicy via its embedded controller.
+#
+# Health probes are unaffected: kubelet reaches the pod from the node, not through
+# this Service, and the gateway namespace is allowed here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kubesandbox-backend.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow the Envoy Gateway (which terminates edge auth and injects X-User-*)
+    # to reach the API / ext-authz port. Nothing else may.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.gatewayNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

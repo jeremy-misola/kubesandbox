@@ -155,11 +155,11 @@ Division of responsibility: **edge = "valid user," backend = "owns this session.
 
 ## 8. Decision checklist
 
-- [x] **G1 identity** chosen: backend **trusts Envoy-forwarded `X-User-*` headers**; lock the gateway→backend path (NetworkPolicy / mTLS).
+- [x] **G1 identity** chosen: backend **trusts Envoy-forwarded `X-User-*` headers**; lock the gateway→backend path. **NetworkPolicy lock added (rev 5, default-on)** — ingress to the backend is restricted to `envoy-gateway-system`.
 - [ ] **(G4)** Add `kubesandbox-backend` Authentik client + `kubesandbox-backend-client-secret` (mirror frontend Workspace) for direct JWT validation on `api.kubesandbox.com`.
 - [x] Authz model chosen: **Option A** (ext-authz to backend).
 - [ ] Backend `/authz` endpoint: path `/s/{id}` → claim → `ownerRef == sub`.
-- [ ] One shared session SecurityPolicy (host `kubesandbox.com`, path `/s/`): OIDC (cookie) + ext-authz to backend; verify on the WS upgrade.
+- [~] One shared session SecurityPolicy: **authored rev 5** (`securitypolicy-session.yaml`, default-off) — OIDC + JWT claimToHeaders + ext-authz, attached to all `/s/` routes by label. **Still to do: live spike** to verify field names + OIDC-token-is-a-JWT + ext-authz on the WS upgrade, then enable.
 - [ ] JWT SecurityPolicy for `api.kubesandbox.com`.
 - [ ] Negative test: user B cannot open user A's session.
 - [ ] Issuer matches token `iss` (split-DNS); `BackendTLSPolicy` if internal CA.

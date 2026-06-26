@@ -204,11 +204,61 @@ func (s *SessionService) Delete(ctx context.Context, id, ownerRef string) error 
 	return nil
 }
 
+// Authorize reports whether ownerRef owns the session identified by public id.
+// It returns nil when the caller owns the claim, and ErrNotFound when the id is
+// unknown, unowned, or malformed (ErrInvalidID). Callers that surface this to an
+// untrusted client — notably the /authz ext-authz endpoint (G2) — MUST collapse
+// unknown/unowned/malformed into a single denial so they cannot be distinguished
+// (no existence leak).
+func (s *SessionService) Authorize(ctx context.Context, id, ownerRef string) error {
+	name, err := s.nameFromID(id)
+	if err != nil {
+		return err
+	}
+	obj, err := s.resource().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("get claim: %w", err)
+	}
+	if specOwner(obj) != ownerRef {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Watch returns a watch scoped to a single claim by name (used by SSE).
 func (s *SessionService) Watch(ctx context.Context, name string) (watch.Interface, error) {
 	return s.resource().Watch(ctx, metav1.ListOptions{
 		FieldSelector: "metadata.name=" + name,
 	})
+}
+
+// listManaged returns every claim this backend manages, across all owners. Used
+// by the TTL controller (G3), which must see all sessions, not one owner's.
+func (s *SessionService) listManaged(ctx context.Context) ([]unstructured.Unstructured, error) {
+	list, err := s.resource().List(ctx, metav1.ListOptions{
+		LabelSelector: managedByLabel + "=" + managedByValue,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list managed claims: %w", err)
+	}
+	return list.Items, nil
+}
+
+// deleteByName deletes a claim by its (non-public) name with background
+// propagation, so a slow child finalizer never blocks the caller. A
+// already-gone claim is treated as success.
+func (s *SessionService) deleteByName(ctx context.Context, name string) error {
+	policy := metav1.DeletePropagationBackground
+	if err := s.resource().Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &policy}); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("delete claim %q: %w", name, err)
+	}
+	return nil
 }
 
 // NameFromID exposes id->name resolution for handlers (e.g. SSE).

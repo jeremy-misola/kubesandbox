@@ -135,6 +135,18 @@ config:
 rbac:
   create: true
 
+# NetworkPolicy: restrict who can reach the backend.
+# SECURITY (G1 defense-in-depth): the backend trusts X-User-* identity headers,
+# so only the Envoy Gateway may reach it — otherwise any pod could spoof identity
+# on /api and /authz. Enabled by default; k3s enforces NetworkPolicy natively.
+networkPolicy:
+  enabled: true
+  # Namespace of the Envoy Gateway allowed to reach the backend, selected by the
+  # auto-applied kubernetes.io/metadata.name label.
+  gatewayNamespace: envoy-gateway-system
+  # Optional extra ingress rules (e.g. an in-cluster Prometheus scraper).
+  extraIngress: []
+
 # Authentication: JWT SecurityPolicy on the /api route (G1 identity source).
 # Disabled by default so installing the chart never breaks an existing route;
 # enable once the Authentik backend client / issuer is confirmed.
@@ -159,3 +171,51 @@ authentication:
         header: X-User-Name
       - claim: groups
         header: X-User-Groups
+
+# Session ownership enforcement (G2) — the shared SecurityPolicy on all /s/{id}
+# routes: OIDC (cookie) -> JWT (claimToHeaders) -> ext-authz to backend /authz.
+# DEFAULT-OFF and UNVERIFIED against a live gateway: see the VERIFICATION REQUIRED
+# block in templates/securitypolicy-session.yaml before enabling in prod.
+sessionAuth:
+  enabled: false
+  oidc:
+    # Authentik issuer for the session (browser) login flow.
+    issuer: ""
+    clientID: ""
+    clientSecret:
+      # Crossplane-written client secret (e.g. kubesandbox-frontend-client-secret).
+      name: ""
+      namespace: ""
+    # Must match the Authentik redirect URI character-for-character.
+    redirectURL: ""
+    logoutPath: "/logout"
+    # Forward the token upstream so the jwt provider can validate it.
+    forwardAccessToken: true
+  jwt:
+    providerName: authentik
+    issuer: ""
+    jwksUri: ""
+    # Defaults to the standard sub/email/name/groups mapping if omitted.
+    claimToHeaders: []
+  extAuth:
+    # Defaults to this chart's backend Service and service.port.
+    backendServiceName: ""
+    backendServicePort: ""
+    path: "/authz"
+
+# Backstop sweep CronJob (G3): deletes orphaned session namespaces (managed,
+# older than maxAgeHours, with no surviving claim). Safety net for the
+# 2026-06-24 post-mortem. Starts in dryRun so the first runs only LOG what they
+# would delete — set dryRun: false once you've confirmed the output.
+sweep:
+  enabled: true
+  dryRun: true
+  schedule: "*/30 * * * *"
+  maxAgeHours: 24
+  # Debian-based image with kubectl + GNU date (date -d). Pin to your cluster's
+  # minor version where practical.
+  image: "bitnami/kubectl:1.31"
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3

@@ -36,5 +36,15 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService) *gin.Engine {
 		api.GET("/sessions/:id/events", sessions.Events)
 	}
 
+	// Ext-authz (ForwardAuth) endpoint for the per-session SecurityPolicy (G2).
+	// Mounted outside /api: the session route's SecurityPolicy points its ext-authz
+	// backendRef here. IdentityMiddleware enforces the same X-User-* identity
+	// contract (missing identity -> 401). Both /authz and /authz/<original-path>
+	// are accepted so the policy can either forward the URI via header or send the
+	// original path directly.
+	authz := handlers.NewAuthzHandler(svc)
+	r.GET("/authz", middleware.IdentityMiddleware(cfg), authz.Check)
+	r.GET("/authz/*rest", middleware.IdentityMiddleware(cfg), authz.Check)
+
 	return r
 }

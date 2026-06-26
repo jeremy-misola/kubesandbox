@@ -1,0 +1,130 @@
+{{- if .Values.sweep.enabled -}}
+{{- $fullName := include "kubesandbox-backend.fullname" . -}}
+{{- $sweepName := printf "%s-sweep" $fullName -}}
+# Backstop sweep (G3) — deletes ORPHANED session namespaces.
+#
+# The TTL loop deletes claims and Crossplane cascades teardown, but the
+# 2026-06-24 post-mortem showed a stuck finalizer can orphan a namespace after
+# its claim is gone. This CronJob is the safety net: it deletes namespaces that
+# are (a) labelled kubesandbox.com/managed=true, (b) older than maxAgeHours, and
+# (c) have NO surviving KubeSandboxSession claim. A live claim is always left to
+# Crossplane, so this never races an active session.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sweepName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $sweepName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+rules:
+  # Find and delete orphaned session namespaces.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "delete"]
+  # Read-only: check whether a claim still owns the namespace before deleting.
+  - apiGroups: ["platform.kubesandbox.com"]
+    resources: ["kubesandboxsessions"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $sweepName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $sweepName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sweepName }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $sweepName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.sweep.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.sweep.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.sweep.failedJobsHistoryLimit | default 3 }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.sweep.backoffLimit | default 1 }}
+      activeDeadlineSeconds: {{ .Values.sweep.activeDeadlineSeconds | default 300 }}
+      template:
+        metadata:
+          labels:
+            {{- include "kubesandbox-backend.selectorLabels" . | nindent 12 }}
+        spec:
+          serviceAccountName: {{ $sweepName }}
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: sweep
+              image: {{ .Values.sweep.image | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: CLAIM_NAMESPACE
+                  value: {{ .Values.config.namespace | quote }}
+                - name: MAX_AGE_HOURS
+                  value: {{ .Values.sweep.maxAgeHours | quote }}
+                - name: DRY_RUN
+                  value: {{ .Values.sweep.dryRun | quote }}
+                - name: HOME
+                  value: /tmp
+                - name: KUBECACHEDIR
+                  value: /tmp/.kube/cache
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  now=$(date -u +%s)
+                  max=$(( MAX_AGE_HOURS * 3600 ))
+                  echo "sweep: claimNs=$CLAIM_NAMESPACE maxAgeHours=$MAX_AGE_HOURS dryRun=$DRY_RUN"
+                  kubectl get ns -l kubesandbox.com/managed=true --no-headers \
+                    -o custom-columns=NAME:.metadata.name,TS:.metadata.creationTimestamp \
+                  | while read -r ns created; do
+                      [ -z "$ns" ] && continue
+                      age=$(( now - $(date -u -d "$created" +%s) ))
+                      if [ "$age" -lt "$max" ]; then
+                        continue
+                      fi
+                      claim=${ns#${CLAIM_NAMESPACE}-}
+                      if kubectl get kubesandboxsession "$claim" -n "$CLAIM_NAMESPACE" >/dev/null 2>&1; then
+                        # Claim still exists — leave teardown to Crossplane.
+                        continue
+                      fi
+                      if [ "$DRY_RUN" = "true" ]; then
+                        echo "sweep: WOULD delete orphaned ns $ns (age ${age}s, no claim $claim)"
+                      else
+                        echo "sweep: deleting orphaned ns $ns (age ${age}s, no claim $claim)"
+                        kubectl delete ns "$ns" --wait=false || echo "sweep: delete $ns failed"
+                      fi
+                    done
+                  echo "sweep: done"
+          volumes:
+            - name: tmp
+              emptyDir: {}
+{{- end }}

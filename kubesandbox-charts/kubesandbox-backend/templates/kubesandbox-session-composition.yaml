@@ -524,6 +524,12 @@ spec:
                     metadata:
                       name: shell
                       namespace: placeholder
+                      # Label used by the shared session SecurityPolicy
+                      # (securitypolicy-session.yaml) to attach OIDC + ext-authz
+                      # ownership enforcement to every per-session route via
+                      # spec.targetSelectors — no per-session policy needed.
+                      labels:
+                        kubesandbox.com/session-route: "true"
                     spec:
                       parentRefs:
                         - name: kubesandbox

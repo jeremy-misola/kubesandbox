@@ -2,40 +2,46 @@
 
 **Status:** active handoff
 **Audience:** whoever picks up the backend next (incl. future me)
-**Last updated:** 2026-06-26 (rev 2 — G4 Authentik client + JWT policy added)
+**Last updated:** 2026-06-26 (rev 5 — security + lifecycle hardening: backend NetworkPolicy (anti-spoofing), the shared session SecurityPolicy chart template (OIDC + JWT + ext-authz, default-off, needs live spike), the in-backend TTL cleanup loop (G3), and a backstop sweep CronJob. Two stale doc copies consolidated. All `go build/vet/test` + `helm lint/template` green.)
 **Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`02-auth-design.md`](./02-auth-design.md) · [`03-implementation-plan.md`](./03-implementation-plan.md)
 
 ---
 
 ## 1. Where we are
 
-We are in **Phase 1 (G1 — backend control service)** of the implementation plan,
-with two adjacent fixes pulled forward from Phase 2 (G2 routing/auth groundwork).
+We are at the **end of Phase 1 (G1 — backend control service): deployed and
+verified running on the live `prod-k3s` cluster.** The session lifecycle works
+end to end (create → provision vcluster + ttyd → working in-session `kubectl` →
+delete). Edge auth/routing is now correct after fixing two blockers found during
+live testing.
 
-The backend Go service now exists end-to-end as source, the session routing has
-been converted to path-based, and the identity plumbing (JWT → headers) has been
-scaffolded but is **not yet enabled**. Nothing in this batch has been deployed —
-it is all code/manifests in the repo awaiting `go mod tidy`, image build, and an
-ArgoCD sync.
-
-**One-line status (rev 2):** G1 code + its identity source are now both in place
-in Git — the Authentik backend OIDC client is defined (Crossplane Workspace) and
-the JWT `SecurityPolicy` is enabled with real issuer/JWKS in the prod/dev
-overrides. What remains before G1 runs is purely *apply + verify*: build/push the
-image, let ArgoCD sync the prereqs (client secret) and the chart, then confirm
-`X-User-*` headers actually arrive (§3).
+**One-line status (rev 3):** G1 is deployed and works. Live-tested against
+`prod-k3s`: backend `/health` green, API CRUD verified (401 without identity, 201
+create, 204 delete, ownership scoping), the Crossplane composition provisions a
+private vcluster + ttyd with a working `kubectl`, and the browser terminal at
+`kubesandbox.com/s/{id}` returns the ttyd page (HTTP 200). Two routing blockers
+found and resolved this session (§2.6): **(A)** the frontend's older protected
+HTTPRoute was shadowing `/api` and swallowing it into the frontend OIDC flow —
+fixed by removing `/api` from the frontend chart; **(B)** the deployed Composition
+was stale (ttyd ran without its `-b $BASE_PATH`, so `/s/{id}` 404'd) — resolved
+when the bad Composition (owned by the now-deleted frontend ArgoCD app) was pruned
+and re-applied from the backend chart with the correct `-b` + path route. **The
+only thing not yet verified end-to-end is JWT with a *real* Authentik bearer
+token** — the policy is active and rejects missing/invalid tokens, but a valid
+token requires a browser login (§3, §5).
 
 ### Gap scorecard (vs. plan §1)
 
 | Gap | Plan status | Now | Notes |
 |---|---|---|---|
-| G1 Backend control service | P0, not built | **Code complete, not deployed** | Needs `go mod tidy`, image, deploy. |
-| G2 Per-session ownership authz | P0, not built | **Not started** | `/authz` endpoint not written (scope was G1-only). |
-| G2b Path-based routing | "done" in doc, but composition wasn't | **Actually done now** | Composition + ttyd switched this session. |
-| G3 TTL enforcement | P0, not built | **Not started** | Config var wired, loop not implemented. |
-| G4 Backend Authentik client + token validation | P1, not built | **Defined in Git, not yet applied** | Authentik backend client (Workspace) created; JWT policy enabled w/ issuer+JWKS in prd/dev overrides. Needs ArgoCD sync + header verify. |
-| G5 Frontend SPA | P1, scaffold | **Unchanged** | Must attach bearer tokens to `/api` (see §4). |
-| G6 Tenant/quota model | P1, partial | **Partial** | Per-user cap implemented in backend; profiles→resources implemented. |
+| G1 Backend control service | P0, not built | **Deployed & verified on prod-k3s** | API CRUD, ownership scoping, quota, composition provisioning all live-tested OK. |
+| G2 Per-session ownership authz | P0, not built | **Backend endpoint done; policy authored (default-off), needs live spike** | `/authz` endpoint implemented + unit-tested (rev 4). The shared session `SecurityPolicy` now exists as a chart template (rev 5, `securitypolicy-session.yaml`, OIDC + JWT claimToHeaders + ext-authz, targets session routes by label). DEFAULT-OFF and **not yet verified against a live gateway** — see the VERIFICATION REQUIRED block in that file. |
+| Backend NetworkPolicy (G1 hardening) | implied, not built | **Added (rev 5), default-on** | `networkpolicy.yaml` restricts backend ingress to `envoy-gateway-system`, so in-cluster pods can't spoof `X-User-*` on `/api` or `/authz`. Mirrors the working per-session NetworkPolicy. |
+| G2b Path-based routing | "done" in doc, but composition wasn't | **Done & verified live** | `/s/{id}` returns ttyd 200 through the gateway; ttyd serves under `-b /s/{id}`. |
+| G3 TTL enforcement | P0, not built | **Implemented (rev 5), not live-tested** | In-backend TTL loop (`cleanup.go`) deletes expired claims (status.expiresAt, falling back to creation+ttlMinutes since nothing populates expiresAt yet), background delete so a stuck finalizer can't block it. Backstop sweep CronJob deletes orphaned session namespaces (default-on, `dryRun: true`). Unit-tested; not yet run on a cluster. |
+| G4 Backend Authentik client + token validation | P1, not built | **Deployed; JWT enforcing, valid-token path unverified** | Client secret present, JWT `SecurityPolicy` Accepted by Envoy, rejects missing/invalid tokens (401). Valid-bearer + `X-User-*` injection still needs a browser login to confirm. |
+| G5 Frontend SPA | P1, scaffold | **ArgoCD app deleted this session** | Frontend routes pruned; must be recreated from chart ≥0.1.8. Still must attach bearer tokens to `/api` (see §4). |
+| G6 Tenant/quota model | P1, partial | **Partial** | Per-user cap implemented in backend; profiles→resources implemented & verified (starter 250m/256Mi tested). |
 | G7 Observability | P2 | **Not started** | |
 | G8 Starter labs | P2 | **Not started** | |
 
@@ -159,22 +165,145 @@ turn it on via overrides).
 - **BackendTLSPolicy** — *not* added. `auth.jeremymr.dev` appears publicly
   issued; add one only if Envoy can't trust the cert when fetching JWKS.
 
+### 2.6 Deployed to prod-k3s + live end-to-end testing (rev 3) — done
+
+The backend image was built/pushed and ArgoCD synced. Everything below was
+verified against the live `prod-k3s` cluster (namespace `kubesandbox`).
+
+**What's confirmed working:**
+
+- **Health:** `kubesandbox-backend-helm` pod Running 1/1; `/health` and `/healthz`
+  return 200 (kubelet probes green).
+- **API logic** (tested by hitting the backend Service directly with manual
+  `X-User-*` headers, bypassing the gateway): no identity → `401`; with
+  `X-User-Id` → `200`; `POST /api/sessions {profile}` → `201`;
+  `DELETE` → `204`; list/get scope to the caller only.
+- **Composition / provisioning:** creating a session emits all 7 managed
+  resources (vcluster Helm `Release` + `Object`s for namespace, resourcequota,
+  networkpolicy, shell pod, shell service, httproute). The vcluster cold-boots in
+  ~4–5 min (the shell pod correctly blocks on the `vc-<...>-vcluster` kubeconfig
+  secret until then). Once up, **`kubectl` inside the shell works against the
+  private vcluster** (listed the node, created+read a ConfigMap). The session
+  `NetworkPolicy` correctly isolates the namespace (only the gateway can reach
+  the shell on 8080).
+- **Profiles:** `starter` → 250m/256Mi and `standard` → 500m/512Mi both applied
+  correctly to the shell pod.
+
+**Two routing blockers were found and fixed:**
+
+- **Blocker A — `/api` shadowed by the frontend OIDC route.** Two HTTPRoutes on
+  host `kubesandbox.com` both matched `PathPrefix: /api` — the backend's
+  (JWT-guarded) route and an **older** `kubesandbox-frontend-helm-protected` rule
+  pointing at the frontend service under OIDC. With equal path specificity, the
+  Gateway API tie-break picks the **oldest** route, so every `/api` call hit the
+  frontend and got a `302` to Authentik (`client_id=kubesandbox-frontend`) — it
+  never reached the backend or its JWT policy.
+  **Fix:** removed the `/api` entry from `kubesandbox-charts/frontend/values.yaml`
+  `protectedPaths` (now only `/terminal`), with an explanatory comment; bumped the
+  frontend `Chart.yaml` to `0.1.8`. After the frontend routes were removed,
+  `/api` now correctly hits the JWT filter: missing token → `401 "Jwt is
+  missing"`, malformed token → `401`, **no** Authentik redirect.
+- **Blocker B — stale Composition: `/s/{id}` 404'd.** The deployed shell pod ran
+  `ttyd -W -p 8080 sh` *without* the `-b $BASE_PATH` flag, so ttyd served at `/`
+  while the gateway forwarded `/s/{id}/...` unchanged → ttyd's own 404. The repo
+  composition was correct, but the **live** Composition was stale (it was tracked
+  by the frontend ArgoCD app, not the backend). When the frontend ArgoCD app was
+  deleted, the stale Composition was pruned and re-applied from the backend chart
+  with the fix. **Verified:** a fresh session's shell pod now renders
+  `ttyd -W -b "$BASE_PATH"` with `BASE_PATH=/s/{id}`, and
+  `GET https://kubesandbox.com/s/{id}/` returns **HTTP 200** with the ttyd
+  terminal page (`<title>ttyd - Terminal</title>`); `/s/{id}/token` also 200.
+
+> **Ownership note for whoever re-adds the frontend:** the `kubesandbox-session`
+> Composition must be owned by **one** ArgoCD app (the backend). Historically it
+> carried `tracking-id: kubesandbox-frontend-helm`, which is why deleting the
+> frontend app pruned it. Keep it in the backend chart only.
+
+**Test hygiene:** all test sessions and the throwaway `curl` pod were deleted. One
+pre-existing stale session, `s-5798f4b1` (owner `you@example.com`), was left in
+place stuck in a namespace reconcile error — delete it
+(`kubectl delete kubesandboxsession s-5798f4b1 -n playground`).
+
+### 2.7 Security + lifecycle hardening (rev 5) — addresses the review findings
+
+Closes the review's items 1–3, 5–6. All in `kubesandbox-charts/kubesandbox-backend`
+and `backend/`; chart bumped `0.1.6 → 0.1.7`. Verified with `go build/vet/test`
+(all green, new unit tests pass) and `helm lint` + `helm template` (renders clean,
+both SecurityPolicies render without a name clash, the session-route label is
+matched by the policy selector).
+
+- **Backend NetworkPolicy (review item 1, the biggest hole).**
+  `templates/networkpolicy.yaml` (+ `networkPolicy.*` values, **default-on**)
+  restricts backend ingress to the `envoy-gateway-system` namespace. The backend
+  trusts `X-User-*`; without this, any pod could spoof identity on `/api` or
+  `/authz`. Mirrors the per-session NetworkPolicy already proven on prod-k3s.
+- **Shared session SecurityPolicy (review item 2 — the G2 keystone).**
+  `templates/securitypolicy-session.yaml` (+ `sessionAuth.*` values,
+  **default-off**). One policy for all sessions via `spec.targetSelectors`
+  matching `kubesandbox.com/session-route: "true"` (now stamped on the
+  composition's shell HTTPRoute). Chain: **OIDC** (cookie, rides the WS upgrade)
+  → **JWT** `claimToHeaders` (gives `/authz` its `X-User-*`; the OIDC filter
+  can't emit claim headers) → **ext-authz** to the backend `/authz`.
+- **VERIFICATION REQUIRED (review item 3 — the live spike).** The policy is wired
+  to the best-understood Envoy Gateway contract but is **unverified against a live
+  gateway** and default-off so an ArgoCD sync can't touch the live gateway. Before
+  enabling, confirm (on dev): the v1.8 field names (`forwardAccessToken`,
+  `headersToExtAuth`, `extAuth.http.*`); that the forwarded OIDC token is a JWT the
+  `jwt` provider can validate (needs the backend client's RS256 signing key); that
+  ext-authz runs **on the ttyd WebSocket upgrade** and `X-User-*` + the `/s/{id}`
+  path reach `/authz`; and the negative test (user B → 403). Full checklist is in
+  the template's header.
+- **TTL cleanup loop (review item 5 / G3).** `backend/internal/kubernetes/cleanup.go`
+  — `TTLController` runs every `TTL_CLEANUP_INTERVAL`, deleting claims past expiry.
+  Expiry prefers `status.expiresAt` but **falls back to creationTimestamp +
+  spec.ttlMinutes** because nothing populates `status.expiresAt` today. Deletes the
+  **claim only** with **background propagation** (a stuck finalizer can't block the
+  loop), skips already-terminating claims, and continues past individual failures
+  (post-mortem-safe). Wired into `main.go` with its own cancellable context; unit
+  tested (`cleanup_test.go`).
+- **Backstop sweep CronJob (G3).** `templates/sweep-cronjob.yaml` (+ `sweep.*`
+  values, **default-on but `dryRun: true`**). Dedicated least-privilege SA/Role
+  (namespaces get/list/delete + kubesandboxsessions get/list). Deletes session
+  namespaces that are managed, older than `maxAgeHours` (24h), and have **no
+  surviving claim** — a live claim is always left to Crossplane. Flip `dryRun:
+  false` after reviewing a run's "WOULD delete" log.
+- **Doc consolidation (review item 6).** The stale `GitOps-Homelab/docs/kubesandbox`
+  copies (older, still referencing the abandoned `operators-helm/...` backend path)
+  were replaced with pointer stubs to this canonical set.
+
+> **Not changed (per your choice):** `/api` keeps **JWT bearer** auth — the SPA
+> must attach a token and SSE must use a fetch-stream client (caveats §4.1–4.2
+> stand). The cookie-validation alternative was explicitly deferred.
+
 ---
 
-## 3. Key finding: identity headers are NOT being injected today
+## 3. Identity headers: JWT policy is now live; valid-token path still unverified
 
-Verified against the live `prod-k3s` cluster: every OIDC `SecurityPolicy`
-(`kubesandbox-frontend-helm-auth`, `code-server`, `backstage`, …) is **OIDC-only**
-and emits **no `X-User-*` headers**. Envoy Gateway's OIDC (`oauth2`) filter has
-no claim→header feature; `claimToHeaders` exists only under `spec.jwt`.
+**Background (still true):** Envoy Gateway's OIDC (`oauth2`) filter has no
+claim→header feature — `claimToHeaders` exists only under `spec.jwt`. So the
+backend's `X-User-*` identity can only come from a **JWT** `SecurityPolicy`, not
+from the OIDC cookie flow the SPA uses.
 
-**Consequence:** the G1 backend, which trusts `X-User-*`, would 401 every request
-until an identity source is enabled. That is what §2.4 (and the Authentik backend
-client below) is for. Re-verify after enabling using either:
+**Now (rev 3):** the JWT `SecurityPolicy` (`kubesandbox-backend-helm-jwt`) is
+deployed and **Accepted** by the gateway, targeting the backend `/api` HTTPRoute,
+with `claimToHeaders` (`sub→X-User-Id`, `email→X-User-Email`, `name→X-User-Name`,
+`groups→X-User-Groups`) and the real Authentik issuer/JWKS. Live-tested: `/api`
+with no token → `401 "Jwt is missing"`; malformed token → `401`. So the filter is
+in the request path and enforcing.
 
-- echo service behind the gateway, then read forwarded headers; or
+**Still to confirm:** that a **valid** Authentik bearer yields `200` *and* the
+`X-User-*` headers actually reach the backend. This needs a real token (browser
+login to `kubesandbox-backend`), which couldn't be done headlessly. Verify with:
+
+- get a token via an Authentik OAuth flow for the `kubesandbox-backend` app, then
+  `curl -H "Authorization: Bearer <token>" https://kubesandbox.com/api/sessions`
+  and expect JSON (not 401/302); or
 - `kubectl port-forward -n envoy-gateway-system <kubesandbox-envoy-pod> 19000:19000`
   then `curl -s localhost:19000/config_dump | grep -i x-user`.
+
+**Pre-flight:** confirm the Authentik signing-key cert name matches
+`signingKeyName` (default `"authentik Self-signed Certificate"`), else JWKS is
+empty and every valid token still 401s.
 
 ---
 
@@ -187,14 +316,19 @@ client below) is for. Re-verify after enabling using either:
 2. **SSE + headers.** Browser `EventSource` cannot set headers, so the SSE route
    can't carry a bearer via the native API. Consume SSE with a fetch-stream
    client that sets `Authorization`, or keep that one route cookie-based.
-3. ~~**Authentik backend client doesn't exist.**~~ **Resolved (rev 2):** the
-   `kubesandbox-backend` Authentik app + provider are now defined (Workspace,
-   §2.5) and the JWT policy points at its real issuer/JWKS. Still needs an
-   ArgoCD apply and a live header check. Open sub-item: confirm the Authentik
-   **signing-key cert name** (`signingKeyName`) matches your instance.
-4. **No go.sum committed.** The Dockerfile runs `go mod tidy` at build time so CI
+3. ~~**Authentik backend client doesn't exist.**~~ **Applied & enforcing
+   (rev 3):** the `kubesandbox-backend` Authentik app + provider exist, the
+   client secret is present, and the JWT policy is Accepted and rejecting
+   missing/invalid tokens. Remaining: a **valid-token** check (§3) and confirming
+   the **signing-key cert name** (`signingKeyName`) matches your instance.
+4. **Frontend ArgoCD app was deleted (rev 3).** The SPA and its routes are gone.
+   Recreate it from the frontend chart **≥ 0.1.8** (the version that no longer
+   claims `/api`). Recreating from 0.1.7 reintroduces Blocker A.
+5. **`kubesandbox-backend-helm` ArgoCD app was OutOfSync** at end of session —
+   sync it to settle the drift that caused the stale Composition.
+6. **No go.sum committed.** The Dockerfile runs `go mod tidy` at build time so CI
    works, but committing `go.sum` locally enables dependency layer caching.
-5. **Couldn't compile in this environment** (no Go toolchain + restricted
+7. **Couldn't compile in this environment** (no Go toolchain + restricted
    network). Run `go build ./... && go vet ./...` locally before merge.
 
 ---
@@ -212,31 +346,49 @@ client below) is for. Re-verify after enabling using either:
    `authentication.enabled: true` + issuer/jwksUri in the prd/dev chart
    overrides. `BackendTLSPolicy` not needed (public cert); revisit if JWKS fetch
    fails TLS.
-4. **← NEXT. Deploy & verify.** Build/push the image (`backend.yml`), let ArgoCD
-   sync `kubesandbox-backend-prereqs` (creates the client secret) then the chart
-   (after the XRD is established). Confirm `/health` is green and that `X-User-*`
-   headers now arrive (§3). **Pre-flight:** verify the Authentik signing-key cert
-   name matches `signingKeyName` (default `"authentik Self-signed Certificate"`),
-   else the JWKS will be empty and every `/api` call 401s.
-5. **Smoke test:** create a `standard` session, poll `GET /api/sessions/{id}`
-   until `workspaceReady`, open `kubesandbox.com/s/{id}`, confirm ttyd + kubectl.
+4. ~~**Deploy & verify.**~~ — **done rev 3** (§2.6). Image built/pushed, ArgoCD
+   synced, `/health` green, two routing blockers fixed.
+5. ~~**Smoke test.**~~ — **done rev 3** (§2.6): created `starter` + `standard`
+   sessions, watched them go `Ready`, `kubesandbox.com/s/{id}` returns the ttyd
+   page (200), in-session `kubectl` works.
+
+### Immediate follow-ups from rev 3 testing
+6. **← NEXT. Recreate the frontend ArgoCD app** from chart **≥ 0.1.8** (without the
+   `/api` rule) to bring the SPA back without re-introducing Blocker A. Then
+   **sync `kubesandbox-backend-helm`** (was OutOfSync).
+7. **Verify JWT with a real bearer** (§3): valid Authentik token → `/api` returns
+   `200` and `X-User-*` reach the backend. Pre-flight the `signingKeyName` cert.
+8. **Delete the stale session** `s-5798f4b1` (owner `you@example.com`), stuck in a
+   namespace reconcile error.
 
 ### Phase 2 — Session ownership authz (G2)
-6. Implement the backend **`GET /authz`** endpoint: from forwarded path `/s/{id}`
-   + identity, 200 iff claim `ownerRef == sub`, else 403 (404 for unknown).
-7. Add the **shared session SecurityPolicy** (host `kubesandbox.com`, path `/s/`):
-   OIDC (cookie) then ext-authz to the backend. Verify it runs on the **WebSocket
-   upgrade** for ttyd.
-8. **Negative test:** user B cannot open user A's `/s/{id}`.
+9. ~~Implement the backend **`GET /authz`** endpoint~~ — **done rev 4.** From the
+   forwarded path `/s/{id}` + `X-User-*` identity, returns 200 iff claim
+   `ownerRef == sub`, else 403; unknown/unowned/malformed ids and any non-`/s/`
+   path all 403 (no existence leak); no identity → 401; backend error → 503 (fail
+   closed). Lives in `backend/internal/api/handlers/authz.go` (+ `SessionService.Authorize`),
+   mounted at `/authz` and `/authz/*rest` in `router.go`. Reads the original URI
+   from `X-Forwarded-Uri` / `X-Original-Uri` / `X-Envoy-Original-Path`, falling
+   back to its own path. Unit-tested (`authz_test.go`, fake dynamic client);
+   `go build/vet/test ./...` all green. **Still to do:** the gateway
+   `SecurityPolicy` (item 10) and live verification.
+10. ~~Add the **shared session SecurityPolicy**~~ — **authored rev 5**
+    (`securitypolicy-session.yaml`, default-off): OIDC + JWT claimToHeaders +
+    ext-authz, attached to all session routes by label. **← NEXT: run the live
+    spike** to verify it against a dev gateway (field names, OIDC-token-is-a-JWT,
+    ext-authz on the WS upgrade), then enable via prd/dev overrides.
+11. **Negative test:** user B cannot open user A's `/s/{id}` (do this during the
+    spike above).
 
 ### Phase 3 — TTL & safe cleanup (G3)
-9. Implement the TTL loop (in-backend) deleting claims past `status.expiresAt`,
-   using delete policies that can't wedge a CRD (orphan-then-sweep per the
-   2026-06-24 post-mortem). Add the backstop sweep CronJob.
+12. ~~Implement the TTL loop + backstop sweep CronJob~~ — **done rev 5**
+    (`cleanup.go` + `sweep-cronjob.yaml`, unit-tested). Remaining: **live-test** on
+    a cluster (create a short-TTL session, confirm it's reaped; check a sweep dry
+    run's log) and then set `sweep.dryRun: false`.
 
 ### Later
-10. Frontend SPA (G5) incl. token attachment + fetch-based SSE.
-11. Observability/alerts (G7), rate limiting; starter labs (G8).
+13. Frontend SPA (G5) incl. token attachment + fetch-based SSE.
+14. Observability/alerts (G7), rate limiting; starter labs (G8).
 
 ---
 
@@ -250,6 +402,21 @@ auto-expire at TTL and clean up without wedging any CRD.
 ---
 
 ## 7. File index (changed/added this session)
+
+**Rev 5 (security + lifecycle hardening):**
+
+- `backend/internal/kubernetes/cleanup.go` (+ `cleanup_test.go`) — TTL controller (G3).
+- `backend/internal/kubernetes/sessions.go` — added `listManaged` / `deleteByName` helpers.
+- `backend/cmd/server/main.go` — start/stop the TTL loop.
+- `kubesandbox-charts/kubesandbox-backend/templates/networkpolicy.yaml` — new (anti-spoofing, default-on).
+- `kubesandbox-charts/kubesandbox-backend/templates/securitypolicy-session.yaml` — new G2 session policy (default-off, needs live spike).
+- `kubesandbox-charts/kubesandbox-backend/templates/sweep-cronjob.yaml` — new backstop + scoped RBAC (default-on, dryRun).
+- `kubesandbox-charts/kubesandbox-backend/templates/kubesandbox-session-composition.yaml` — `kubesandbox.com/session-route` label on the shell HTTPRoute.
+- `kubesandbox-charts/kubesandbox-backend/values.yaml` — `networkPolicy.*`, `sessionAuth.*`, `sweep.*`.
+- `kubesandbox-charts/kubesandbox-backend/Chart.yaml` — `0.1.6 → 0.1.7`.
+- `GitOps-Homelab/docs/kubesandbox/*.md` — replaced stale copies with pointer stubs.
+
+**Earlier this session:**
 
 - `backend/**` — new Go service (G1).
 - `kubesandbox-charts/kubesandbox-backend/templates/kubesandbox-session-composition.yaml`
@@ -265,3 +432,9 @@ auto-expire at TTL and clean up without wedging any CRD.
 - `operators-helm/operators/kubesandbox-backend/values/pre-resources/values-{prd,dev}.yaml` — new (`envSuffix`, `signingKeyName`).
 - `operators-helm/operators/kubesandbox-backend/values/chart/values-{prd,dev}.yaml` — enable JWT policy + issuer/JWKS.
 - `operators-helm/values/values-{prd,dev}.yaml` — `preResources` enabled on the `kubesandbox-backend` operator entry.
+
+**Rev 3 (deploy + live testing) — in `kubesandbox-charts`:**
+
+- `kubesandbox-charts/frontend/values.yaml` — removed `/api` from `protectedPaths` (Blocker A fix; only `/terminal` remains).
+- `kubesandbox-charts/frontend/Chart.yaml` — version `0.1.7` → `0.1.8`.
+- No backend source changes this rev; Blocker B was a deploy/ownership drift (the live `kubesandbox-session` Composition was stale and is now re-applied from the backend chart). The composition template in the repo was already correct.

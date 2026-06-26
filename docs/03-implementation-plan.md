@@ -52,9 +52,10 @@ is orchestration and authorization, not terminal proxying.
 | # | Gap | Status today | Priority |
 |---|---|---|---|
 | G1 | **Backend control service** (creates/lists/deletes `KubeSandboxSession` claims, enforces quota, surfaces session URL). | Helm scaffold only, no app. | **P0** |
-| G2 | **Per-session ownership authorization.** Session URLs are routed but not protected by an *ownership-aware* policy — any authenticated Authentik user could reach any session. | Not implemented. | **P0** |
+| G2 | **Per-session ownership authorization.** Session URLs are routed but not protected by an *ownership-aware* policy — any authenticated Authentik user could reach any session. | Backend `/authz` done (rev 4); shared session SecurityPolicy authored rev 5 (default-off, `securitypolicy-session.yaml`). **Needs the live ext-authz/WS spike before enabling.** | **P0** |
+| G1h | **Backend NetworkPolicy (anti-spoofing).** Backend trusts `X-User-*`; nothing stopped an in-cluster pod from spoofing identity on `/api` / `/authz`. | **Done rev 5** (`networkpolicy.yaml`, default-on, ingress from `envoy-gateway-system` only). | ~~P0~~ |
 | G2b | **Switch routing to path-based** `kubesandbox.com/s/{id}` — composition HTTPRoute + ttyd base-path. | **Done 2026-06-26** (composition updated). | ~~P0~~ |
-| G3 | **TTL enforcement / cleanup.** XRD has `ttlMinutes` + `status.expiresAt`, but something must actually delete expired claims — safely (see post-mortem). | Not implemented. | **P0** |
+| G3 | **TTL enforcement / cleanup.** XRD has `ttlMinutes` + `status.expiresAt`, but something must actually delete expired claims — safely (see post-mortem). | **Done rev 5**: in-backend TTL loop (`cleanup.go`) + backstop sweep CronJob (`sweep-cronjob.yaml`, dryRun). Unit-tested; live-test pending. | ~~P0~~ |
 | G4 | **Backend Authentik client + token validation.** Frontend client exists; backend needs to validate user identity and map `sub → ownerRef`. | Not implemented. | **P1** |
 | G5 | **Frontend SPA** (signup, session dashboard, "open terminal"). | Scaffold only. | **P1** |
 | G6 | **Tenant / user model & quotas** (per-tenant concurrent session caps, profiles → resources). | Partial (profile enum exists). | **P1** |
