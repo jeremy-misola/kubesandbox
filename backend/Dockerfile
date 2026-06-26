@@ -11,7 +11,9 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # ---- runtime stage ----
-FROM gcr.io/distroless/static-nonroot
+# Use the `static` repo with the explicit `nonroot` tag. The `static-nonroot`
+# repo publishes no `latest` tag, so an untagged ref fails to pull.
+FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=build /out/server /server
 EXPOSE 8080
