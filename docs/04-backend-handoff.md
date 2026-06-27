@@ -2,7 +2,7 @@
 
 **Status:** active handoff
 **Audience:** whoever picks up the backend next (incl. future me)
-**Last updated:** 2026-06-26 (rev 5 — security + lifecycle hardening: backend NetworkPolicy (anti-spoofing), the shared session SecurityPolicy chart template (OIDC + JWT + ext-authz, default-off, needs live spike), the in-backend TTL cleanup loop (G3), and a backstop sweep CronJob. Two stale doc copies consolidated. All `go build/vet/test` + `helm lint/template` green.)
+**Last updated:** 2026-06-27 (rev 6 — live-tested rev 5 on prod-k3s: NetworkPolicy enforcement and the `/authz` ownership matrix both PASS; TTL loop running; sweep PASS after fixing a real bug — `bitnami/kubectl:1.31` is gone from Docker Hub, switched to `alpine/k8s:1.31.1` + portable `date`. Chart 0.1.7→0.1.8, **redeploy needed**. rev 5 — security + lifecycle hardening: backend NetworkPolicy, session SecurityPolicy template (default-off), in-backend TTL loop, sweep CronJob.)
 **Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`02-auth-design.md`](./02-auth-design.md) · [`03-implementation-plan.md`](./03-implementation-plan.md)
 
 ---
@@ -274,6 +274,48 @@ matched by the policy selector).
 > **Not changed (per your choice):** `/api` keeps **JWT bearer** auth — the SPA
 > must attach a token and SSE must use a fetch-stream client (caveats §4.1–4.2
 > stand). The cookie-validation alternative was explicitly deferred.
+
+---
+
+### 2.8 Live testing on prod-k3s (rev 6) — results + one bug fixed
+
+Tested the rev-5 work against the live cluster (chart 0.1.7 deployed; `sessionAuth`
+left off, `networkPolicy`/`sweep` on, JWT on).
+
+- **Backend NetworkPolicy — PASS (enforced).** From a pod in `default`, the backend
+  Service is unreachable (`curl` exit 7, connection refused) even with a spoofed
+  `X-User-Id`. From a pod in `envoy-gateway-system` it's reachable (`/health` 200,
+  `/api/sessions` 200). So only the gateway can reach `/api` + `/authz` — spoofing
+  is blocked.
+- **G2 `/authz` ownership — PASS (backend half, live).** Hitting `/authz` directly
+  with forwarded identity + `X-Forwarded-Uri` gave the full matrix: owner→200,
+  owner subpath→200, non-owner→403, unknown id→403, malformed id→403, non-`/s/`
+  path→403, no identity→401. The negative test (user B can't reach user A's
+  session) holds. **Still pending:** the gateway-side OIDC→JWT→ext-authz wiring —
+  the session `SecurityPolicy` is still default-off (`sessionAuth.enabled=false`),
+  so the live spike (browser token, WS upgrade) is the remaining G2 step.
+- **JWT `/api` policy — Accepted** by the gateway (status `Accepted`).
+- **TTL loop — running & mechanism proven.** Backend logs show
+  `ttl: cleanup loop started (interval=1m0s)`. The constituent live ops are proven
+  (backend lists managed claims; DELETE returns 204; sweep SA lists claims). A
+  fresh claim confirmed `status.expiresAt` is **not** populated, so the
+  creation+`ttlMinutes` fallback is the live path (as designed). A full *timed*
+  reap wasn't watched end-to-end because the XRD floors `ttlMinutes` at 15 — see
+  §5 to finish.
+- **Sweep CronJob — PASS, after fixing a real bug (rev 6).** The scheduled run
+  failed: **`bitnami/kubectl:1.31` no longer exists on Docker Hub** (Bitnami removed
+  legacy tags in 2025) → `ErrImagePull`. Fixed: image → **`alpine/k8s:1.31.1`**, and
+  the sweep script's timestamp parsing made portable across **GNU and busybox
+  `date`** (the new image's `date` is busybox). Re-ran the corrected sweep against
+  a planted orphan namespace + a real session: dry-run correctly logged
+  `KEEP playground-s-<real> (claim exists)` and `WOULD delete <orphan> (no claim)`;
+  the real run **deleted the orphan** and left the live session untouched. Chart
+  bumped **0.1.7 → 0.1.8**. **Action: redeploy 0.1.8** — the live CronJob is broken
+  until then.
+
+> **Test hygiene:** all probe pods, test jobs, the planted orphan namespace, and
+> the throwaway `alice@example.com` session were deleted. No managed namespaces or
+> test jobs remain.
 
 ---
 

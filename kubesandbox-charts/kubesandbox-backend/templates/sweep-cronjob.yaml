@@ -75,6 +75,7 @@ spec:
             runAsUser: 1000
           containers:
             - name: sweep
+              # Needs a POSIX shell + kubectl; script handles GNU or busybox date.
               image: {{ .Values.sweep.image | quote }}
               securityContext:
                 allowPrivilegeEscalation: false
@@ -100,6 +101,15 @@ spec:
                 - -c
                 - |
                   set -eu
+                  # Parse an RFC3339 UTC timestamp to epoch seconds, portably:
+                  # GNU coreutils `date -d` and busybox `date -D` differ, so try
+                  # both. Empty output => unparseable => caller skips (never deletes
+                  # on a bad parse).
+                  ts_epoch() {
+                    date -u -d "$1" +%s 2>/dev/null && return 0
+                    date -u -D '%Y-%m-%dT%H:%M:%SZ' -d "$1" +%s 2>/dev/null && return 0
+                    return 0
+                  }
                   now=$(date -u +%s)
                   max=$(( MAX_AGE_HOURS * 3600 ))
                   echo "sweep: claimNs=$CLAIM_NAMESPACE maxAgeHours=$MAX_AGE_HOURS dryRun=$DRY_RUN"
@@ -107,7 +117,12 @@ spec:
                     -o custom-columns=NAME:.metadata.name,TS:.metadata.creationTimestamp \
                   | while read -r ns created; do
                       [ -z "$ns" ] && continue
-                      age=$(( now - $(date -u -d "$created" +%s) ))
+                      epoch=$(ts_epoch "$created")
+                      if [ -z "$epoch" ]; then
+                        echo "sweep: SKIP $ns (could not parse timestamp '$created')"
+                        continue
+                      fi
+                      age=$(( now - epoch ))
                       if [ "$age" -lt "$max" ]; then
                         continue
                       fi

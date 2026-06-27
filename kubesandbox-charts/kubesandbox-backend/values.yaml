@@ -212,9 +212,10 @@ sweep:
   dryRun: true
   schedule: "*/30 * * * *"
   maxAgeHours: 24
-  # Debian-based image with kubectl + GNU date (date -d). Pin to your cluster's
-  # minor version where practical.
-  image: "bitnami/kubectl:1.31"
+  # Image needs a POSIX shell + kubectl. The sweep script parses timestamps with
+  # both GNU and busybox `date`, so coreutils- or busybox-based images both work.
+  # (NB: bitnami/kubectl Docker Hub tags were removed in 2025; don't use them.)
+  image: "alpine/k8s:1.31.1"
   backoffLimit: 1
   activeDeadlineSeconds: 300
   successfulJobsHistoryLimit: 3
