@@ -12,9 +12,16 @@ import (
 
 // NewRouter builds the Gin engine.
 //
-// Routing note: the Envoy HTTPRoute forwards the "/api" prefix unchanged (no URL
-// rewrite filter), so the API lives under /api. Health probes are served at the
-// root because the kubelet hits the pod directly, bypassing the gateway.
+// Route summary:
+//
+//	GET  /health, /healthz         — unauthenticated kubelet probes (at root,
+//	                                  bypassing the gateway).
+//	/api/*                         — JWT-guarded session control API (G1/G4).
+//	GET  /authz, /authz/*          — ext-authz ForwardAuth endpoint (G2 Option B):
+//	                                  reads the session cookie; no valid cookie →
+//	                                  redirect to Authentik; valid → ownership check.
+//	GET  /oauth2/callback          — OIDC callback: exchange code, set session
+//	                                  cookie, redirect to original URL. No auth.
 func NewRouter(cfg config.Config, svc *k8s.SessionService) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -36,15 +43,19 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService) *gin.Engine {
 		api.GET("/sessions/:id/events", sessions.Events)
 	}
 
-	// Ext-authz (ForwardAuth) endpoint for the per-session SecurityPolicy (G2).
-	// Mounted outside /api: the session route's SecurityPolicy points its ext-authz
-	// backendRef here. IdentityMiddleware enforces the same X-User-* identity
-	// contract (missing identity -> 401). Both /authz and /authz/<original-path>
-	// are accepted so the policy can either forward the URI via header or send the
-	// original path directly.
-	authz := handlers.NewAuthzHandler(svc)
-	r.GET("/authz", middleware.IdentityMiddleware(cfg), authz.Check)
-	r.GET("/authz/*rest", middleware.IdentityMiddleware(cfg), authz.Check)
+	// Ext-authz (ForwardAuth) endpoint for the per-session SecurityPolicy (G2
+	// Option B). No IdentityMiddleware: identity comes from the session cookie,
+	// not from X-User-* headers. The handler either redirects to Authentik (no
+	// valid cookie) or checks ownership and returns 200/403/503.
+	authz := handlers.NewAuthzHandler(svc, cfg)
+	r.GET("/authz", authz.Check)
+	r.GET("/authz/*rest", authz.Check)
+
+	// OIDC callback: receives ?code=...&state=... from Authentik after login.
+	// Sets the session cookie and redirects back to the original /s/{id}/... URL.
+	// No authentication required — this is the login completion endpoint.
+	callback := handlers.NewAuthCallbackHandler(cfg)
+	r.GET("/oauth2/callback", callback.Callback)
 
 	return r
 }

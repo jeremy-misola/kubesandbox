@@ -63,6 +63,38 @@ spec:
               value: {{ .Values.config.maxSessionsPerUser | quote }}
             - name: TTL_CLEANUP_INTERVAL
               value: {{ .Values.config.ttlCleanupInterval | quote }}
+            {{- if .Values.sessionAuth.enabled }}
+            # --- G2 Option B: backend-owned session auth ---
+            - name: OIDC_ISSUER
+              value: {{ .Values.sessionAuth.oidc.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.sessionAuth.oidc.clientID | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "sessionAuth.oidc.clientSecret.name is required when sessionAuth.enabled" .Values.sessionAuth.oidc.clientSecret.name }}
+                  key: client-secret
+            - name: OIDC_REDIRECT_URI
+              value: {{ .Values.sessionAuth.oidc.redirectURI | quote }}
+            {{- if .Values.sessionAuth.oidc.authEndpoint }}
+            - name: OIDC_AUTH_ENDPOINT
+              value: {{ .Values.sessionAuth.oidc.authEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.sessionAuth.oidc.tokenEndpoint }}
+            - name: OIDC_TOKEN_ENDPOINT
+              value: {{ .Values.sessionAuth.oidc.tokenEndpoint | quote }}
+            {{- end }}
+            # SESSION_SECRET is output by the same Terraform Workspace that
+            # provisions the OIDC client (kubesandbox-backend-auth.yaml) and
+            # written to the same Secret under key "session-secret".
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "sessionAuth.oidc.clientSecret.name is required when sessionAuth.enabled" .Values.sessionAuth.oidc.clientSecret.name }}
+                  key: session-secret
+            - name: SESSION_MAX_AGE_SECONDS
+              value: {{ .Values.sessionAuth.sessionMaxAgeSeconds | default 28800 | quote }}
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

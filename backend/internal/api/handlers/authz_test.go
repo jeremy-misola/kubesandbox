@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -11,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/jeremy-misola/kubesandbox/backend/internal/api/middleware"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/auth"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
@@ -72,17 +73,42 @@ func newAuthzService(objs ...runtime.Object) *k8s.SessionService {
 	return k8s.NewSessionService(client, "playground", "https://kubesandbox.com", 3, models.DefaultWorkspaceImage)
 }
 
-// doAuthz runs the handler with the given identity subject and X-Forwarded-Uri.
-func doAuthz(svc *k8s.SessionService, subject, uri string) int {
+const testSecret = "test-hmac-secret-32-bytes-padding"
+
+// testCfg returns a minimal Config for authz tests with session auth wired up.
+func testCfg() config.Config {
+	return config.Config{
+		PublicBaseURL:     "https://kubesandbox.com",
+		SessionSecret:     testSecret,
+		SessionCookieName: "kubesandbox_session",
+		OIDCAuthEndpoint:  "https://auth.example.com/application/o/authorize/",
+		OIDCClientID:      "kubesandbox-backend",
+		OIDCRedirectURI:   "https://kubesandbox.com/oauth2/callback",
+	}
+}
+
+// makeSessionCookie returns a valid signed session cookie value for subject.
+func makeSessionCookie(subject string) string {
+	tok, _ := auth.SignSession(auth.SessionClaims{
+		Subject: subject,
+		Email:   subject,
+		Exp:     time.Now().Add(1 * time.Hour).Unix(),
+	}, testSecret)
+	return tok
+}
+
+// doAuthz runs the Check handler with the given session cookie value (empty = no
+// cookie) and X-Forwarded-Uri, returning the HTTP status code.
+func doAuthz(svc *k8s.SessionService, cookieVal, uri string) int {
 	gin.SetMode(gin.TestMode)
-	cfg := config.Load()
+	cfg := testCfg()
 	r := gin.New()
-	h := NewAuthzHandler(svc)
-	r.GET("/authz", middleware.IdentityMiddleware(cfg), h.Check)
+	h := NewAuthzHandler(svc, cfg)
+	r.GET("/authz", h.Check)
 
 	req := httptest.NewRequest(http.MethodGet, "/authz", nil)
-	if subject != "" {
-		req.Header.Set("X-User-Id", subject)
+	if cookieVal != "" {
+		req.Header.Set("Cookie", cfg.SessionCookieName+"="+cookieVal)
 	}
 	if uri != "" {
 		req.Header.Set("X-Forwarded-Uri", uri)
@@ -97,25 +123,74 @@ func TestAuthzDecisionMatrix(t *testing.T) {
 	other := "bob@example.com"
 	svc := newAuthzService(newClaim("playground", "s-1a2b3c4d", owner))
 
+	ownerCookie := makeSessionCookie(owner)
+	otherCookie := makeSessionCookie(other)
+
 	cases := []struct {
-		name    string
-		subject string
-		uri     string
-		want    int
+		name      string
+		cookieVal string // empty = no cookie
+		uri       string
+		want      int
 	}{
-		{"owner allowed", owner, "/s/playground-s-1a2b3c4d", http.StatusOK},
-		{"owner allowed subpath", owner, "/s/playground-s-1a2b3c4d/token", http.StatusOK},
-		{"non-owner denied", other, "/s/playground-s-1a2b3c4d", http.StatusForbidden},
-		{"unknown id denied", owner, "/s/playground-s-deadbeef", http.StatusForbidden},
-		{"malformed id denied", owner, "/s/not-a-valid-id", http.StatusForbidden},
-		{"no session path denied", owner, "/api/sessions", http.StatusForbidden},
-		{"no identity 401", "", "/s/playground-s-1a2b3c4d", http.StatusUnauthorized},
+		// Authenticated owner: allow (200).
+		{"owner allowed", ownerCookie, "/s/playground-s-1a2b3c4d", http.StatusOK},
+		{"owner allowed subpath", ownerCookie, "/s/playground-s-1a2b3c4d/token", http.StatusOK},
+		// Authenticated but not owner: deny (403).
+		{"non-owner denied", otherCookie, "/s/playground-s-1a2b3c4d", http.StatusForbidden},
+		// Owner but unknown session id: deny (403, no existence leak).
+		{"unknown id denied", ownerCookie, "/s/playground-s-deadbeef", http.StatusForbidden},
+		// Owner but malformed id: deny (403).
+		{"malformed id denied", ownerCookie, "/s/not-a-valid-id", http.StatusForbidden},
+		// No /s/{id} in the path: deny (403).
+		{"no session path denied", ownerCookie, "/api/sessions", http.StatusForbidden},
+		// No cookie: redirect to Authentik (302).
+		{"no cookie redirects to login", "", "/s/playground-s-1a2b3c4d", http.StatusFound},
+		// Tampered cookie: redirect to login (302).
+		{"tampered cookie redirects", ownerCookie + "TAMPERED", "/s/playground-s-1a2b3c4d", http.StatusFound},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := doAuthz(svc, tc.subject, tc.uri); got != tc.want {
+			if got := doAuthz(svc, tc.cookieVal, tc.uri); got != tc.want {
 				t.Fatalf("status = %d, want %d", got, tc.want)
 			}
 		})
 	}
+}
+
+// TestAuthzLoginRedirectHasLocation verifies that a missing-cookie response
+// includes a Location header pointing to the OIDC authorization endpoint.
+func TestAuthzLoginRedirectHasLocation(t *testing.T) {
+	svc := newAuthzService()
+	gin.SetMode(gin.TestMode)
+	cfg := testCfg()
+	r := gin.New()
+	r.GET("/authz", NewAuthzHandler(svc, cfg).Check)
+
+	req := httptest.NewRequest(http.MethodGet, "/authz", nil)
+	req.Header.Set("X-Forwarded-Uri", "/s/playground-s-1a2b3c4d")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc == "" {
+		t.Fatal("expected Location header, got none")
+	}
+	if !containsString(loc, cfg.OIDCAuthEndpoint) {
+		t.Fatalf("Location %q does not contain OIDC auth endpoint %q", loc, cfg.OIDCAuthEndpoint)
+	}
+}
+
+func containsString(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
+		func() bool {
+			for i := 0; i+len(sub) <= len(s); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+			return false
+		}())
 }

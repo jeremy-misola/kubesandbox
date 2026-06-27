@@ -2,7 +2,7 @@
 
 **Status:** active handoff
 **Audience:** whoever picks up the backend next (incl. future me)
-**Last updated:** 2026-06-27 (rev 6 — live-tested rev 5 on prod-k3s: NetworkPolicy enforcement and the `/authz` ownership matrix both PASS; TTL loop running; sweep PASS after fixing a real bug — `bitnami/kubectl:1.31` is gone from Docker Hub, switched to `alpine/k8s:1.31.1` + portable `date`. Chart 0.1.7→0.1.8, **redeploy needed**. rev 5 — security + lifecycle hardening: backend NetworkPolicy, session SecurityPolicy template (default-off), in-backend TTL loop, sweep CronJob.)
+**Last updated:** 2026-06-26 (rev 8 — implemented G2 Options A+B (backend-owned session auth). Chart 0.1.9. Full design + code changes below; spike findings and rationale in [`05-g2-spike-findings.md`](./05-g2-spike-findings.md). rev 7 — ran the G2 session-auth spike live on prod-k3s. **The specced G2 design does not work on Envoy Gateway v1.7.1**: SecurityPolicy is same-namespace-only (sessions are per-namespace) and ext-authz fires before OIDC can log the user in. Full write-up + redesign options in [`05-g2-spike-findings.md`](./05-g2-spike-findings.md). rev 6 — live-tested rev 5: NetworkPolicy + `/authz` matrix PASS, sweep fixed (bitnami image gone → `alpine/k8s:1.31.1`), chart 0.1.8. rev 5 — security + lifecycle hardening.)
 **Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`02-auth-design.md`](./02-auth-design.md) · [`03-implementation-plan.md`](./03-implementation-plan.md)
 
 ---
@@ -48,6 +48,71 @@ token requires a browser login (§3, §5).
 ---
 
 ## 2. What was done this session
+
+### 2.0 G2 Options A+B — backend-owned session auth (rev 8)
+
+Implements the redesign from the G2 spike findings. Chart bumped **0.1.8 → 0.1.9**.
+`sessionAuth.enabled` remains **default-off** — enable once the pre-flight checklist
+below (§5 item 10a) is complete.
+
+**Option A — Session HTTPRoutes moved to shared `kubesandbox` namespace:**
+- `kubesandbox-session-composition.yaml` — `shell-httproute` manifest namespace now
+  fixed to `kubesandbox` (was patched to the per-session ns). The `backendRefs`
+  entry gains a `namespace` field patched to the per-session ns (cross-namespace
+  backendRef). New `shell-referencegrant` Object in the composition: a
+  `ReferenceGrant` placed in the per-session namespace allowing the `kubesandbox`-ns
+  HTTPRoute to reference the per-session `shell` Service (required by Gateway API
+  for cross-namespace backendRefs).
+
+**Option B — Backend owns the full OIDC flow:**
+- `backend/internal/auth/session.go` — HMAC-SHA256 session cookie sign/verify
+  (format: `base64url(json(claims)).base64url(hmac_sig)`; stateless, no server-side
+  store needed; `sub`/`email`/`name`/`exp` payload).
+- `backend/internal/auth/oidc.go` — PKCE (`GenerateCodeVerifier`, `CodeChallenge`
+  S256), state JWT (`SignState`/`VerifyState`), OIDC code exchange
+  (`ExchangeCode`), ID token claim parse (`ParseIDTokenClaims` — no JWKS
+  validation, trusted via server-to-server TLS).
+- `backend/internal/api/handlers/authz.go` — rewritten: reads session cookie via
+  `c.Cookie()`; missing/invalid/expired → PKCE redirect to Authentik (302);
+  valid cookie → ownership check (200/403/503). `IdentityMiddleware` removed.
+- `backend/internal/api/handlers/auth.go` — new `/oauth2/callback` handler:
+  verifies state token, exchanges code, parses ID token, sets
+  `HttpOnly/Secure/SameSite=Lax` session cookie, redirects to original URL.
+- `backend/internal/api/router.go` — `/authz` routes no longer use
+  `IdentityMiddleware`; `/oauth2/callback` route added (no auth).
+- `backend/internal/config/config.go` — added OIDC fields (`OIDCIssuer`,
+  `OIDCClientID/Secret`, `OIDCRedirectURI`, `OIDCAuthEndpoint`, `OIDCTokenEndpoint`
+  — auth/token endpoints default to `{issuer}/authorize/` and `{issuer}/token/`)
+  and session fields (`SessionSecret`, `SessionCookieName`, `SessionCookieDomain`,
+  `SessionMaxAge`).
+- `templates/securitypolicy-session.yaml` — gutted to ext-authz only (OIDC+JWT
+  blocks removed). `headersToExtAuth` now forwards `cookie` + path headers.
+- `templates/httproute-callback.yaml` — new: unauthenticated HTTPRoute for
+  `/oauth2/callback` → backend (created only when `sessionAuth.enabled`; separate
+  route so the JWT SecurityPolicy on `/api` doesn't cover it).
+- `templates/deployment.yaml` — `OIDC_*` and `SESSION_*` env vars injected when
+  `sessionAuth.enabled`; `OIDC_CLIENT_SECRET` and `SESSION_SECRET` from
+  `secretKeyRef`.
+- `values.yaml` — `sessionAuth` block replaced: removed `oidc`/`jwt` sub-sections
+  that mapped to the old edge OIDC; added `sessionAuth.oidc.*` (issuer, clientID,
+  redirectURI, auth/tokenEndpoint, clientSecret ref) and `sessionAuth.sessionSecret`
+  (Secret ref).
+
+**Pre-flight before enabling `sessionAuth.enabled: true`:**
+1. Register `https://kubesandbox.com/oauth2/callback` as a redirect URI on the
+   `kubesandbox-backend` Authentik client (currently only API/JWT use is registered).
+2. Create a `kubesandbox-session-secret` Secret with key `session-secret` =
+   `$(openssl rand -hex 32)` in the `kubesandbox` namespace.
+3. Fill `sessionAuth.oidc.*` values in the prod/dev chart overrides (issuer =
+   `https://auth.jeremymr.dev/application/o/kubesandbox-backend/`, clientID, redirectURI).
+4. Set `sessionAuth.oidc.clientSecret.name: kubesandbox-backend-client-secret`
+   (the Secret Crossplane already wrote).
+5. Set `sessionAuth.sessionSecret.name: kubesandbox-session-secret`.
+6. Deploy 0.1.9 + set `sessionAuth.enabled: true` in the dev override.
+7. Verify: unauthenticated browser → 302 to Authentik → login → cookie set →
+   `/s/{id}` opens. User B → 403. WS upgrade (ttyd) → works end-to-end.
+
+
 
 ### 2.1 Backend control service (G1) — new, at `backend/`
 
@@ -414,11 +479,10 @@ empty and every valid token still 401s.
    back to its own path. Unit-tested (`authz_test.go`, fake dynamic client);
    `go build/vet/test ./...` all green. **Still to do:** the gateway
    `SecurityPolicy` (item 10) and live verification.
-10. ~~Add the **shared session SecurityPolicy**~~ — **authored rev 5**
-    (`securitypolicy-session.yaml`, default-off): OIDC + JWT claimToHeaders +
-    ext-authz, attached to all session routes by label. **← NEXT: run the live
-    spike** to verify it against a dev gateway (field names, OIDC-token-is-a-JWT,
-    ext-authz on the WS upgrade), then enable via prd/dev overrides.
+10. ~~Add the **shared session SecurityPolicy** + run the live spike~~ — **spike
+    done rev 7; design rejected; Options A+B implemented rev 8.** See
+    [`05-g2-spike-findings.md`](./05-g2-spike-findings.md) §5.
+    **← NEXT: enable + verify on dev** (see §5 below).
 11. **Negative test:** user B cannot open user A's `/s/{id}` (do this during the
     spike above).
 

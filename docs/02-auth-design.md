@@ -78,6 +78,13 @@ authenticated user open **anyone's** session URL. We need: *is this authenticate
 user the **owner** of the session `{id}`?*
 
 ### Decision: Option A — OIDC + ext-authz / ForwardAuth → backend
+
+> ⚠️ **Superseded by the 2026-06-27 spike.** Option A as written below does **not**
+> work on the deployed Envoy Gateway (v1.7.1): a single edge policy cannot do OIDC
+> login *and* ext-authz ownership (ext-authz fires first → `401` before login), and
+> SecurityPolicy attaches same-namespace only while sessions are per-namespace. The
+> backend `/authz` ownership logic is sound; the *delivery mechanism* must change.
+> See [`05-g2-spike-findings.md`](./05-g2-spike-findings.md) §5 for redesign options.
 A **shared** SecurityPolicy on the session route (host `kubesandbox.com`, path
 prefix `/s/`) first runs OIDC (cookie), then calls the backend authorization
 endpoint with the original request path:
@@ -159,7 +166,7 @@ Division of responsibility: **edge = "valid user," backend = "owns this session.
 - [ ] **(G4)** Add `kubesandbox-backend` Authentik client + `kubesandbox-backend-client-secret` (mirror frontend Workspace) for direct JWT validation on `api.kubesandbox.com`.
 - [x] Authz model chosen: **Option A** (ext-authz to backend).
 - [ ] Backend `/authz` endpoint: path `/s/{id}` → claim → `ownerRef == sub`.
-- [~] One shared session SecurityPolicy: **authored rev 5** (`securitypolicy-session.yaml`, default-off) — OIDC + JWT claimToHeaders + ext-authz, attached to all `/s/` routes by label. **Still to do: live spike** to verify field names + OIDC-token-is-a-JWT + ext-authz on the WS upgrade, then enable.
+- [~] One shared session SecurityPolicy (ext-authz only, Options A+B): **implemented (chart 0.1.9, default-off), pending live verification.** Session HTTPRoutes moved to the `kubesandbox` namespace (Option A); SecurityPolicy simplified to ext-authz only; backend owns the full OIDC flow (Option B). See [`05-g2-spike-findings.md`](./05-g2-spike-findings.md) §5 and [`04-backend-handoff.md`](./04-backend-handoff.md) §2.0 for details and pre-flight checklist.
 - [ ] JWT SecurityPolicy for `api.kubesandbox.com`.
 - [ ] Negative test: user B cannot open user A's session.
 - [ ] Issuer matches token `iss` (split-DNS); `BackendTLSPolicy` if internal CA.

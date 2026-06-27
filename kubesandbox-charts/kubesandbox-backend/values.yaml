@@ -172,35 +172,64 @@ authentication:
       - claim: groups
         header: X-User-Groups
 
-# Session ownership enforcement (G2) — the shared SecurityPolicy on all /s/{id}
-# routes: OIDC (cookie) -> JWT (claimToHeaders) -> ext-authz to backend /authz.
-# DEFAULT-OFF and UNVERIFIED against a live gateway: see the VERIFICATION REQUIRED
-# block in templates/securitypolicy-session.yaml before enabling in prod.
+# Session ownership enforcement (G2 Option B) — backend-owned session auth.
+#
+# Design (post-spike 2026-06-27, Options A+B):
+#   A. Session HTTPRoutes are in the shared kubesandbox namespace (composition
+#      change) so this SecurityPolicy can attach via targetSelectors.
+#   B. The backend drives the complete OIDC flow. The SecurityPolicy does
+#      ext-authz ONLY: no edge OIDC/JWT. The backend /authz endpoint checks the
+#      session cookie and either redirects to Authentik (login) or checks
+#      ownership (allow/deny).
+#
+# Before enabling:
+#   1. Ensure the Terraform Workspace (kubesandbox-backend-auth.yaml) has been
+#      applied — it registers /oauth2/callback as the redirect URI on the Authentik
+#      client AND generates the SESSION_SECRET, writing both to the Secret named in
+#      sessionAuth.oidc.clientSecret.name (kubesandbox-backend-client-secret).
+#      Keys written: client-id, client-secret, session-secret, issuer-url, jwks-uri.
+#   2. Set sessionAuth.oidc.* values (issuer, clientID, redirectURI).
+#   3. Set sessionAuth.oidc.clientSecret.name to the Secret name above.
+#      Both OIDC_CLIENT_SECRET (key: client-secret) and SESSION_SECRET
+#      (key: session-secret) are read from this same Secret.
+#   4. Verify on dev: unauthenticated browser → 302 to Authentik → login →
+#      cookie set → /s/{id} opens. User B → 403.
 sessionAuth:
   enabled: false
+
+  # OIDC configuration for the backend-owned login flow (Option B).
   oidc:
-    # Authentik issuer for the session (browser) login flow.
+    # Authentik provider issuer URL for the kubesandbox-backend app.
+    # e.g. https://auth.jeremymr.dev/application/o/kubesandbox-backend/
     issuer: ""
+    # OAuth2 client_id registered in Authentik (e.g. kubesandbox-backend).
     clientID: ""
+    # Callback URL registered in Authentik; must match character-for-character.
+    # e.g. https://kubesandbox.com/oauth2/callback
+    redirectURI: ""
+    # Authorization endpoint. Derived from issuer if empty
+    # (issuer + "authorize/"). Override if Authentik is behind split-DNS.
+    authEndpoint: ""
+    # Token endpoint. Derived from issuer if empty (issuer + "token/").
+    tokenEndpoint: ""
+    # Reference to the Crossplane-managed Secret holding OIDC credentials.
+    # Written by kubesandbox-backend-auth.yaml Workspace. Contains:
+    #   client-secret  — OIDC client_secret (OIDC_CLIENT_SECRET)
+    #   session-secret — HMAC key for cookies + PKCE state (SESSION_SECRET)
     clientSecret:
-      # Crossplane-written client secret (e.g. kubesandbox-frontend-client-secret).
-      name: ""
-      namespace: ""
-    # Must match the Authentik redirect URI character-for-character.
-    redirectURL: ""
-    logoutPath: "/logout"
-    # Forward the token upstream so the jwt provider can validate it.
-    forwardAccessToken: true
-  jwt:
-    providerName: authentik
-    issuer: ""
-    jwksUri: ""
-    # Defaults to the standard sub/email/name/groups mapping if omitted.
-    claimToHeaders: []
+      name: ""       # e.g. kubesandbox-backend-client-secret
+      namespace: ""  # defaults to the chart's release namespace
+
+  # How long the session cookie is valid. Default 8 hours.
+  sessionMaxAgeSeconds: 28800
+
   extAuth:
     # Defaults to this chart's backend Service and service.port.
     backendServiceName: ""
     backendServicePort: ""
+    # Namespace of the backend Service. Leave empty if it is in the same
+    # namespace as this policy (i.e. the release namespace = kubesandbox).
+    backendServiceNamespace: ""
     path: "/authz"
 
 # Backstop sweep CronJob (G3): deletes orphaned session namespaces (managed,

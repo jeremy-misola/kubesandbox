@@ -1,38 +1,39 @@
 {{- if .Values.sessionAuth.enabled -}}
 {{- $fullName := include "kubesandbox-backend.fullname" . -}}
 {{- $sa := .Values.sessionAuth -}}
-# Shared per-session SecurityPolicy (G2, Option A) — ownership enforcement.
+# Shared per-session SecurityPolicy (G2 Option B) — ext-authz ownership enforcement.
 #
-# Problem: the terminal is ttyd reached by URL (kubesandbox.com/s/{id}). A plain
-# OIDC policy proves "a valid user" but NOT "the OWNER of this session", so any
-# authenticated user could open anyone's session. This policy closes that gap for
-# EVERY session route at once, with no per-session policy:
+# Design (post-spike, 2026-06-27): The original G2 design (OIDC → JWT →
+# ext-authz in one policy) does not work on EG v1.7.1: SecurityPolicy attaches
+# same-namespace only (sessions were per-namespace), and ext-authz fires before
+# OIDC can log the user in. The redesign (Options A + B):
 #
-#   1. oidc       — browser cookie login (rides the ttyd WebSocket upgrade).
-#   2. jwt        — validates the forwarded token and maps claims to X-User-*
-#                   headers (the OIDC filter alone cannot emit claim headers).
-#   3. extAuth    — calls the backend /authz with the original /s/{id} path and
-#                   the X-User-* identity; backend returns 200 iff ownerRef==sub.
+#   Option A: session HTTPRoutes moved to the shared "kubesandbox" namespace
+#             (composition change) so this policy can attach to them via
+#             targetSelectors. A ReferenceGrant in each session namespace permits
+#             the cross-namespace backendRef to the per-session shell Service.
 #
-# It attaches to all per-session HTTPRoutes via targetSelectors (the composition
-# labels them kubesandbox.com/session-route: "true"), so revocation is immediate
-# (delete the claim -> next request 403) and there are no per-session secrets.
+#   Option B: the backend owns the full auth flow. This policy does ext-authz
+#             ONLY — no edge OIDC, no JWT. The backend /authz endpoint:
+#               • no valid session cookie → returns 302 to Authentik (Envoy
+#                 forwards the redirect to the browser; user logs in; Authentik
+#                 redirects to /oauth2/callback; backend exchanges code, sets
+#                 cookie, redirects back to /s/{id}/...).
+#               • valid cookie, caller owns session → 200 (allow).
+#               • valid cookie, not owner / unknown id → 403 (deny).
+#             All auth logic lives in one place; no ext-authz-before-OIDC race.
 #
-# ============================ VERIFICATION REQUIRED ===========================
-# This is wired to the best-understood Envoy Gateway contract but is DEFAULT-OFF
-# and has NOT been confirmed against a live gateway. Before enabling in prod,
-# verify on a dev gateway (this is the "ext-authz spike" called out in the docs):
-#   * Field names for your Envoy Gateway version: oidc.forwardAccessToken,
-#     extAuth.headersToExtAuth, extAuth.http.path/backendRefs. (Docs reference
-#     Envoy Gateway v1.8.0 — confirm against that CRD.)
-#   * The forwarded OIDC token is a JWT the `jwt` provider can validate against
-#     Authentik JWKS (requires the RS256 signing key already set on the backend
-#     client). If the access token is opaque, validate the ID token instead.
-#   * The ext-authz callout RUNS ON THE WEBSOCKET UPGRADE for ttyd (not just the
-#     initial GET) and the X-User-* headers + original /s/{id} path actually
-#     reach /authz.
-#   * Negative test: user B cannot open user A's /s/{id} (expect 403).
-# ==============================================================================
+# The policy lives in the kubesandbox namespace (same namespace as the session
+# HTTPRoutes after Option A) so targetSelectors can attach to them.
+#
+# Pre-flight before enabling:
+#   1. sessionAuth.extAuth.* values point to the backend Service + /authz path.
+#   2. SESSION_SECRET, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_ISSUER,
+#      OIDC_REDIRECT_URI are all set in the deployment (chart values).
+#   3. https://kubesandbox.com/oauth2/callback is registered as a redirect URI
+#      on the kubesandbox-backend Authentik client.
+#   4. Verify on dev: unauthenticated browser → 302 to Authentik → login →
+#      cookie set → /s/{id} opens. User B → 403.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
@@ -40,48 +41,23 @@ metadata:
   labels:
     {{- include "kubesandbox-backend.labels" . | nindent 4 }}
 spec:
-  # One policy for all session routes (path-based routing). The composition
-  # stamps this label on every shell HTTPRoute.
+  # One policy for all session routes (now all in the kubesandbox namespace).
+  # The composition stamps kubesandbox.com/session-route: "true" on every shell
+  # HTTPRoute, and targetSelectors matches them without a per-session policy.
   targetSelectors:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       matchLabels:
         kubesandbox.com/session-route: "true"
 
-  # (1) Edge OIDC — cookie login; the cookie rides the ttyd WS upgrade.
-  oidc:
-    provider:
-      issuer: {{ required "sessionAuth.oidc.issuer is required when sessionAuth.enabled" $sa.oidc.issuer | quote }}
-    clientID: {{ required "sessionAuth.oidc.clientID is required when sessionAuth.enabled" $sa.oidc.clientID | quote }}
-    clientSecret:
-      name: {{ required "sessionAuth.oidc.clientSecret.name is required" $sa.oidc.clientSecret.name }}
-      namespace: {{ $sa.oidc.clientSecret.namespace | default .Release.Namespace }}
-    redirectURL: {{ required "sessionAuth.oidc.redirectURL is required when sessionAuth.enabled" $sa.oidc.redirectURL | quote }}
-    {{- with $sa.oidc.logoutPath }}
-    logoutPath: {{ . | quote }}
-    {{- end }}
-    # Forward the token upstream so the jwt provider below can validate it and
-    # emit the X-User-* identity headers /authz relies on.
-    forwardAccessToken: {{ $sa.oidc.forwardAccessToken | default true }}
-
-  # (2) JWT — validate the forwarded token and project claims to X-User-* headers.
-  jwt:
-    providers:
-      - name: {{ $sa.jwt.providerName | default "authentik" }}
-        issuer: {{ required "sessionAuth.jwt.issuer is required when sessionAuth.enabled" $sa.jwt.issuer | quote }}
-        remoteJWKS:
-          uri: {{ required "sessionAuth.jwt.jwksUri is required when sessionAuth.enabled" $sa.jwt.jwksUri | quote }}
-        claimToHeaders:
-          {{- toYaml ($sa.jwt.claimToHeaders | default (list (dict "claim" "sub" "header" "X-User-Id") (dict "claim" "email" "header" "X-User-Email") (dict "claim" "name" "header" "X-User-Name") (dict "claim" "groups" "header" "X-User-Groups"))) | nindent 10 }}
-
-  # (3) ext-authz — ownership check at the backend /authz endpoint.
+  # ext-authz only — the backend drives the complete OIDC flow (Option B).
+  # No edge OIDC or JWT here: the /authz handler reads the session cookie,
+  # redirects to Authentik if missing/invalid, and checks ownership if present.
   extAuth:
-    # Identity + original path forwarded to the auth service.
+    # Forward the Cookie header (session cookie) and the original request path
+    # to the auth backend. All other standard headers are forwarded by default.
     headersToExtAuth:
-      - x-user-id
-      - x-user-email
-      - x-user-name
-      - x-user-groups
+      - cookie
       - x-forwarded-uri
       - x-original-uri
       - x-envoy-original-path
@@ -89,7 +65,8 @@ spec:
       backendRefs:
         - name: {{ $sa.extAuth.backendServiceName | default $fullName }}
           port: {{ $sa.extAuth.backendServicePort | default .Values.service.port }}
-      # Prepended to the original request path; the backend mounts /authz and
-      # /authz/*rest and strips this prefix to recover /s/{id}.
+          {{- if $sa.extAuth.backendServiceNamespace }}
+          namespace: {{ $sa.extAuth.backendServiceNamespace }}
+          {{- end }}
       path: {{ $sa.extAuth.path | default "/authz" | quote }}
 {{- end }}

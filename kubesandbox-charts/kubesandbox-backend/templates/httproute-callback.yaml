@@ -1,0 +1,30 @@
+{{- if .Values.sessionAuth.enabled -}}
+{{- $fullName := include "kubesandbox-backend.fullname" . -}}
+# Unauthenticated HTTPRoute for the OIDC callback endpoint (G2 Option B).
+#
+# /oauth2/callback must be reachable WITHOUT the JWT SecurityPolicy that guards
+# /api, because it is the login completion endpoint — Authentik redirects here
+# with ?code=...&state=... before any session exists. A separate HTTPRoute
+# ensures no SecurityPolicy attaches to it automatically.
+#
+# This route is only created when sessionAuth is enabled.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullName }}-callback
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}
+  hostnames:
+    {{- toYaml .Values.httpRoute.hostnames | nindent 4 }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /oauth2/callback
+      backendRefs:
+        - name: {{ $fullName }}
+          port: {{ .Values.service.port }}
+{{- end }}
