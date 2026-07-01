@@ -3,6 +3,17 @@ entries:
   kubesandbox-backend:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-07-01T17:10:25.795736947Z"
+    description: Backend API service for KubeSandbox - manages Kubernetes sandbox
+      sessions
+    digest: 04c78805ab4aed623341fecd9d1c9e46852c7f1da2e87f6b68d1d466f1c45f69
+    name: kubesandbox-backend
+    type: application
+    urls:
+    - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-backend-0.1.11/kubesandbox-backend-0.1.11.tgz
+    version: 0.1.11
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-07-01T15:38:58.795258001Z"
     description: Backend API service for KubeSandbox - manages Kubernetes sandbox
       sessions
@@ -125,6 +136,16 @@ entries:
   kubesandbox-frontend:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-07-01T17:10:26.099164309Z"
+    description: A Helm chart for Kubernetes
+    digest: cff9c7ace753add306c003f1d1af61bdf70061a56e4665dc795f249315df35ca
+    name: kubesandbox-frontend
+    type: application
+    urls:
+    - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-frontend-0.1.9/kubesandbox-frontend-0.1.9.tgz
+    version: 0.1.9
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-06-26T23:02:12.751018458Z"
     description: A Helm chart for Kubernetes
     digest: 70866a8e6deb5127ceb7fd5b221b48a8e20ca876cbd1e5e5fd9cfe7ea694b4df
@@ -203,4 +224,4 @@ entries:
     urls:
     - https://github.com/jeremy-misola/kubesandbox/releases/download/kubesandbox-frontend-0.1.1/kubesandbox-frontend-0.1.1.tgz
     version: 0.1.1
-generated: "2026-07-01T15:38:58.795305131Z"
+generated: "2026-07-01T17:10:26.099242254Z"
