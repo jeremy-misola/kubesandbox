@@ -41,4 +41,27 @@ spec:
         claimToHeaders:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+      {{- /*
+        Additional JWT providers. Envoy Gateway validates a token if it matches
+        ANY listed provider, so this lets the /api route trust bearers minted for
+        more than one Authentik client. The SPA logs in as the public
+        `kubesandbox-frontend` client, whose tokens carry a different `iss` than
+        the backend client; adding it here stops those valid tokens 401-ing
+        (docs/06-frontend-architecture.md §4.1 / action item #2). Each entry:
+        { name, issuer, jwksUri, audiences?, claimToHeaders? }.
+      */}}
+      {{- range .Values.authentication.jwt.additionalProviders }}
+      - name: {{ required "each additionalProviders entry needs a name" .name }}
+        issuer: {{ required "each additionalProviders entry needs an issuer" .issuer | quote }}
+        {{- with .audiences }}
+        audiences:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        remoteJWKS:
+          uri: {{ required "each additionalProviders entry needs a jwksUri" .jwksUri | quote }}
+        {{- with .claimToHeaders }}
+        claimToHeaders:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- end }}
 {{- end }}

@@ -98,11 +98,15 @@ httpRoute:
     type: Exact
   - path: /assets
     type: PathPrefix
-  # Protected paths that require OIDC authentication
-  # SecurityPolicy will be applied to these paths only
-  protectedPaths:
-  - path: /terminal
-    type: PathPrefix
+  # Protected paths that require Envoy edge OIDC authentication.
+  # Empty by design: the SPA runs its OWN Authorization Code + PKCE flow
+  # (public Authentik client, tokens in memory) — see
+  # docs/06-frontend-architecture.md §4.1. The terminal is NOT a frontend route:
+  # it is the backend's /s/{id} (backend-owned OIDC + ext-authz). /terminal/:id is
+  # only a client-side hand-off page inside the public SPA bundle, already served
+  # by the "/" publicPath. Leaving this empty disables the frontend
+  # SecurityPolicy and the protected HTTPRoute.
+  protectedPaths: []
   # NOTE: /api is intentionally NOT listed here. The kubesandbox-backend chart
   # owns the /api HTTPRoute (with its JWT SecurityPolicy). Adding /api here makes
   # the frontend's older protected route shadow the backend route (equal path
@@ -150,10 +154,21 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 5
 
-# Environment variables injected into the deployment
-# These values can be overridden by the GitOps-Homelab values files
+# Environment variables injected into the running container. docker-entrypoint.sh
+# reads these at start and writes /config.js (window.__ENV), which src/config.ts
+# resolves before the bundle — so ONE built image promotes across environments
+# (see docs/06-frontend-architecture.md §7). These can be overridden per-env by
+# the GitOps-Homelab frontend values files.
 env:
-  VITE_API_BASE: "/api/v1"
+  # Base path for the control API. The backend serves /api (router.go), NOT /api/v1.
+  VITE_API_BASE: "/api"
+  # Origin used to build the terminal hand-off URL: ${VITE_PUBLIC_BASE_URL}/s/{id}
+  VITE_PUBLIC_BASE_URL: "https://kubesandbox.com"
+  # Authentik OIDC — frontend PUBLIC client (Auth Code + PKCE, no secret in browser).
+  VITE_OIDC_ISSUER: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"
+  VITE_OIDC_CLIENT_ID: "kubesandbox-frontend"
+  # Must match the redirect URI registered on the Authentik client EXACTLY.
+  VITE_OIDC_REDIRECT_URI: "https://kubesandbox.com/auth/callback"
 
 # This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
@@ -182,11 +197,19 @@ tolerations: []
 
 affinity: {}
 
-# -- Authentication configuration for Envoy Gateway SecurityPolicy
-# Requires Envoy Gateway and Gateway API resources
+# -- Authentication configuration for Envoy Gateway SecurityPolicy.
+#
+# DISABLED by design. The SPA runs its own Authorization Code + PKCE flow against
+# Authentik as a PUBLIC client and attaches the bearer to /api itself
+# (docs/06-frontend-architecture.md §4.1). There is therefore no Envoy edge OIDC
+# on the frontend routes, and no client_secret in the browser. This block is kept
+# (disabled) only for reference / a possible future edge-OIDC fallback.
+#
+# When enabled=false the SecurityPolicy template renders nothing, so the
+# oidc.* values below and the kubesandbox-frontend-client-secret are unused.
 authentication:
-  # Enable OIDC authentication
-  enabled: true
+  # Enable Envoy edge OIDC authentication (leave false — SPA owns PKCE).
+  enabled: false
   oidc:
     # Authentik application OIDC issuer URL
     issuer: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"

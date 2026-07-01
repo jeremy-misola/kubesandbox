@@ -37,8 +37,11 @@ spec:
           port: {{ $svcPort }}
           weight: 1
     {{- end }}
+{{- if .Values.httpRoute.protectedPaths }}
 ---
 # Protected HTTPRoute - OIDC authentication required (SecurityPolicy targets this route)
+# Only rendered when protectedPaths is non-empty. By default the SPA owns its PKCE
+# flow and there are no Envoy-protected frontend paths (see values.yaml).
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -70,4 +73,5 @@ spec:
           port: {{ $svcPort }}
           weight: 1
     {{- end }}
+{{- end }}
 {{- end }}

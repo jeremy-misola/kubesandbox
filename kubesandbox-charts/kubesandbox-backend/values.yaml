@@ -171,6 +171,21 @@ authentication:
         header: X-User-Name
       - claim: groups
         header: X-User-Groups
+    # Extra JWT providers whose tokens the /api route should ALSO trust (Envoy
+    # accepts a token matching ANY provider). Use this to trust the SPA's public
+    # `kubesandbox-frontend` client, whose tokens carry a different `iss` than the
+    # backend client. Empty = only the primary provider above is trusted.
+    # Each entry: { name, issuer, jwksUri, audiences?, claimToHeaders? }.
+    #   additionalProviders:
+    #     - name: kubesandbox-frontend
+    #       issuer: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"
+    #       jwksUri: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/jwks/"
+    #       claimToHeaders:
+    #         - { claim: sub, header: X-User-Id }
+    #         - { claim: email, header: X-User-Email }
+    #         - { claim: name, header: X-User-Name }
+    #         - { claim: groups, header: X-User-Groups }
+    additionalProviders: []
 
 # Session ownership enforcement (G2 Option B) — backend-owned session auth.
 #
