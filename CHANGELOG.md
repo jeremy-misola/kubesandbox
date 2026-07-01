@@ -7,6 +7,137 @@ today. Newest first.
 
 ---
 
+## rev 13 — 2026-07-01 — G5 frontend design + SPA→/api auth enablement
+
+Started **G5 (frontend SPA)** and unblocked the SPA→`/api` bearer path end to
+end. The `/api` JWT policy now trusts the SPA's public client, and the frontend
+Authentik provider was fixed to actually publish a JWKS.
+
+Frontend design + scaffold:
+- **`docs/06-frontend-architecture.md`** (new) — living design for G5: scope,
+  lean stack (React 19 + Vite + TS + Tailwind/shadcn + TanStack Query + Zod +
+  oidc-client-ts), route map, the two auth surfaces (`/api` bearer vs. `/s/{id}`
+  backend-owned OIDC), SSE via fetch-stream, runtime-config shim, and open
+  action items. Recommends **SPA Auth-Code+PKCE (public client, in-memory
+  token)** over an edge-OIDC+BFF, keeping the backend stateless.
+- **`frontend/`** (new) — Vite + React 19 + TS SPA scaffold: typed Zod-validated
+  API client (bearer + SSE fetch-stream with polling fallback), PKCE auth,
+  TanStack Query hooks, pages (landing/callback/dashboard/detail/terminal),
+  nginx Dockerfile (`:8080`, `/health/{livez,readyz}`), and a `docker-entrypoint.sh`
+  runtime-config shim so one image promotes across envs. `tsc --noEmit` +
+  `vite build` clean.
+
+Two auth fixes that unblock a valid SPA token on `/api`:
+1. **Multi-issuer JWT trust.** The `/api` JWT `SecurityPolicy` trusted only the
+   `kubesandbox-backend` issuer, so tokens minted for the SPA's
+   `kubesandbox-frontend` client (different `iss`) 401'd. Added an
+   `additionalProviders` list (Envoy accepts a token matching ANY provider) and
+   populated it in prod with the frontend issuer + JWKS + `claimToHeaders`.
+   Verified live: `SecurityPolicy` `kubesandbox-backend-helm-jwt` renders both
+   providers and is `Accepted`.
+2. **Frontend provider published an empty JWKS.** After #1, `/api` still 401'd
+   with `Jwks remote fetch is failed`. Live cluster introspection (exec in
+   `envoy-gateway-system`) showed `…/kubesandbox-frontend/jwks/` → `{}` while
+   `…/kubesandbox-backend/jwks/` returned an RS256 key — DNS/egress/TLS all fine.
+   Root cause: the `kubesandbox-frontend` Terraform Workspace never set a
+   `signing_key`, so Authentik published no JWKS (HS256 fallback). Fixed by
+   mirroring the backend provider: added a `signing_key_name` var + a
+   `authentik_certificate_key_pair` data source, and set `signing_key`,
+   `issuer_mode = "per_provider"`, and `sub_mode = "hashed_user_id"` on the
+   frontend provider (the last keeps `sub` == `ownerRef` consistent across
+   `/api` and `/s/{id}`).
+
+Rollout for #2: sync the frontend pre-resources app → Crossplane re-applies the
+Workspace → confirm `…/kubesandbox-frontend/jwks/` returns `{"keys":[…]}` → wait
+out the 300s Envoy JWKS cache (or restart the kubesandbox proxy pod) → re-login
+in the SPA for a fresh RS256 token. Not yet verified live (pending sync).
+
+Files:
+- `kubesandbox/docs/06-frontend-architecture.md` — new design doc.
+- `kubesandbox/frontend/**` — new SPA scaffold.
+- `kubesandbox/kubesandbox-charts/kubesandbox-backend/templates/securitypolicy-api.yaml`
+  — `additionalProviders` range on the JWT policy.
+- `kubesandbox/kubesandbox-charts/kubesandbox-backend/values.yaml` —
+  `authentication.jwt.additionalProviders` (default `[]`, documented).
+- `GitOps-Homelab/operators-helm/operators/kubesandbox-backend/values/chart/values-prd.yaml`
+  — trust the `kubesandbox-frontend` issuer/JWKS on `/api`.
+- `GitOps-Homelab/operators-helm/operators/kubesandbox-frontend/pre-resources/templates/kubesandbox-frontend-auth.yaml`
+  — add signing key + `issuer_mode`/`sub_mode` so the provider publishes a JWKS.
+
+---
+
+## rev 12 — 2026-07-01 — Security hardening: backend RBAC scope + OAuth login-CSRF fix
+
+Two gaps found during a security/architecture review of the live G1+G2 build,
+fixed and verified same-day. Neither changes any user-visible behavior —
+`go build`/`go vet`/`go test ./...` and `helm lint`/`helm template` all pass
+unchanged for the existing suite, plus new tests added for the CSRF fix.
+
+1. **Backend RBAC was cluster-wide for no reason.** The backend's `ClusterRole`
+   (bound via `ClusterRoleBinding`) granted `secrets: get,list` and
+   `namespaces: get,list` across the *entire* cluster, on top of
+   `kubesandboxsessions` access. Grep confirmed the Go code never calls the
+   Secrets or Namespaces API — those two grants were vestigial. Since the
+   backend ServiceAccount is the most exposed component in the system (it
+   terminates OIDC, holds `SESSION_SECRET`, and is reachable from the gateway),
+   a compromise would have let an attacker read every Secret in every
+   namespace on the management cluster. Fixed by converting to a
+   namespace-scoped `Role`/`RoleBinding` in `.Values.config.namespace`
+   (matching exactly what `SessionService` actually uses — it always calls
+   `client.Resource(GVR).Namespace(cfg.Namespace)`) and dropping the
+   `secrets`/`namespaces` rules entirely. Verified with `helm template` that
+   the cross-namespace case still works (backend Deployment in one namespace,
+   `Role`/`RoleBinding` in another via the standard subject-namespace pattern).
+   The Crossplane aggregation `ClusterRole` and the sweep CronJob's
+   `ClusterRole` (which legitimately needs cluster scope — `namespaces` is a
+   cluster-scoped resource type) were left untouched.
+
+2. **OIDC/PKCE `state` wasn't bound to the initiating browser (login CSRF).**
+   The signed `state` parameter (code_verifier + original URL + expiry) was
+   fully self-contained and portable. An attacker could complete their own
+   Authentik login, capture their own valid `code`+`state` pair, and get a
+   victim to click a crafted link to `/oauth2/callback` — silently logging the
+   victim's browser in as the attacker (classic OAuth login CSRF, RFC 6749
+   §10.12). Fixed by adding a `Nonce` field to `StateClaims`: `/authz`'s
+   `redirectToLogin` now generates a random nonce, signs it into the state,
+   and sets it as an `HttpOnly`/`Secure`/`SameSite=Lax` cookie alongside the
+   redirect; `/oauth2/callback` now requires the cookie's value to match the
+   nonce in the verified state (constant-time compare) before exchanging the
+   code, and clears the cookie on every attempt. Added test coverage:
+   missing/mismatched nonce rejected before token exchange is attempted,
+   matching nonce completes login end-to-end (fake token endpoint), nonce
+   cookie cleared on both success and failure, and the redirect response's
+   cookie/state nonce verified to actually match.
+
+Also updated `kubesandbox_architecture.excalidraw` to match the as-built
+system: split the old single "SecurityPolicy (OIDC/Ext-Authz)" box into the
+real two-policy model (ext-authz-only on `/s/{id}` vs. JWT bearer on `/api`),
+noted the frontend SPA still isn't built, added the Sweep CronJob (dryRun) to
+the cluster group, and added a dated status footer summarizing G1–G5 state
+plus these two fixes.
+
+Files:
+- `kubesandbox-charts/kubesandbox-backend/templates/clusterrole.yaml` —
+  `ClusterRole` → namespace-scoped `Role`; dropped `secrets`/`namespaces` rules.
+- `kubesandbox-charts/kubesandbox-backend/templates/clusterrolebinding.yaml` —
+  `ClusterRoleBinding` → `RoleBinding` in `.Values.config.namespace`.
+- `backend/internal/auth/session.go` — `StateClaims.Nonce` field.
+- `backend/internal/auth/oidc.go` — `GenerateNonce()` (factored out of
+  `GenerateCodeVerifier()` via a shared `randomURLSafeString` helper).
+- `backend/internal/api/handlers/authz.go` — `redirectToLogin` generates and
+  cookies the nonce; new `oauthNonceCookieName`/`oauthNonceMaxAge` constants.
+- `backend/internal/api/handlers/auth.go` — `Callback` verifies the nonce
+  cookie against the state (constant-time) before code exchange; new
+  `clearNonceCookie` helper.
+- `backend/internal/api/handlers/auth_test.go` — new: nonce
+  missing/mismatched/matching/cleared test cases.
+- `backend/internal/api/handlers/authz_test.go` — new
+  `TestAuthzLoginRedirectSetsMatchingNonceCookie`.
+- `kubesandbox_architecture.excalidraw` — updated to reflect as-built G1–G5
+  state and both fixes above.
+
+---
+
 ## rev 11 — 2026-07-01 — G2 enablement + prod verification
 
 Full browser smoke test passed on prod-k3s: unauthenticated → 302 to Authentik
