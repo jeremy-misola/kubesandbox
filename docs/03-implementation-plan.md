@@ -2,7 +2,7 @@
 
 **Status:** active plan
 **Audience:** Jeremy (platform owner)
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-01
 
 ### Locked decisions (2026-06-26)
 
@@ -52,7 +52,7 @@ is orchestration and authorization, not terminal proxying.
 | # | Gap | Status today | Priority |
 |---|---|---|---|
 | G1 | **Backend control service** (creates/lists/deletes `KubeSandboxSession` claims, enforces quota, surfaces session URL). | Helm scaffold only, no app. | **P0** |
-| G2 | **Per-session ownership authorization.** Session URLs are routed but not protected by an *ownership-aware* policy — any authenticated Authentik user could reach any session. | Backend `/authz` done (rev 4); shared session SecurityPolicy authored rev 5 (default-off, `securitypolicy-session.yaml`). **Needs the live ext-authz/WS spike before enabling.** | **P0** |
+| G2 | **Per-session ownership authorization.** Session URLs are routed but not protected by an *ownership-aware* policy — any authenticated Authentik user could reach any session. | **✅ Done (rev 11, 2026-07-01).** Backend-owned OIDC/PKCE flow (Options A+B). Full browser smoke test on prod-k3s: unauthenticated → 302 → Authentik login → cookie → authz 200 → ttyd. Negative test (user B → 403) confirmed. `sessionAuth.enabled: true` on prod. | ~~P0~~ |
 | G1h | **Backend NetworkPolicy (anti-spoofing).** Backend trusts `X-User-*`; nothing stopped an in-cluster pod from spoofing identity on `/api` / `/authz`. | **Done rev 5** (`networkpolicy.yaml`, default-on, ingress from `envoy-gateway-system` only). | ~~P0~~ |
 | G2b | **Switch routing to path-based** `kubesandbox.com/s/{id}` — composition HTTPRoute + ttyd base-path. | **Done 2026-06-26** (composition updated). | ~~P0~~ |
 | G3 | **TTL enforcement / cleanup.** XRD has `ttlMinutes` + `status.expiresAt`, but something must actually delete expired claims — safely (see post-mortem). | **Done rev 5**: in-backend TTL loop (`cleanup.go`) + backstop sweep CronJob (`sweep-cronjob.yaml`, dryRun). Unit-tested; live-test pending. | ~~P0~~ |
@@ -149,19 +149,14 @@ Decisions are locked (see top of doc). Remaining setup:
 > trusting Envoy-forwarded identity headers; G4 hardens the API for non-browser
 > clients.
 
-### Phase 2 — Session ownership authz (G2) (1 wk)
-- [ ] Backend `GET /authz` endpoint: from the forwarded original path `/s/{id}`
-      and the authenticated identity, return 200 if the claim for `{id}` has
-      `ownerRef == sub`, else 403 (404-style for unknown ids — no existence leak).
-- [ ] Add a **shared** SecurityPolicy targeting the session route (host
-      `kubesandbox.com`, path `/s/`) that does OIDC (cookie) then ext-authz to the
-      backend. Model it on the existing `*-security-policy.yaml` files
-      (code-server/longhorn/stirling-pdf). One policy covers all sessions (no
-      per-session policy needed with path-based routing).
-- [ ] Verify the **WebSocket upgrade** for ttyd passes through both OIDC cookie
-      and ext-authz (ttyd uses WS; confirm Envoy forwards the upgrade and the
-      cookie rides it, and the base-path rewrite is correct).
-- [ ] Negative test: user B cannot open user A's `/s/{id}`.
+### Phase 2 — Session ownership authz (G2) ✅ Done (rev 11, 2026-07-01)
+- [x] Backend `GET /authz` endpoint — cookie-based auth; missing/invalid →
+      PKCE redirect to Authentik; valid cookie → ownership check (200/403/503).
+- [x] SecurityPolicy (ext-authz only) via `targetSelectors` on `session-route: "true"` label.
+      Session HTTPRoutes moved to `kubesandbox` namespace (Option A) so the policy attaches.
+      ReferenceGrant added in session namespace for cross-namespace backendRef.
+- [x] WebSocket upgrade verified — ttyd WS works end-to-end through ext-authz.
+- [x] Negative test: user B → 403 (confirmed on prod-k3s).
 
 ### Phase 3 — TTL enforcement & safe cleanup (G3) (1 wk)
 - [ ] A controller loop (in the backend, or a small separate controller) that

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"time"
@@ -65,6 +66,25 @@ func (h *AuthCallbackHandler) Callback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "invalid_state",
 			"message": "state token is invalid or expired — please try again",
+		})
+		return
+	}
+
+	// --- Step 1b: Verify the nonce cookie matches the state (CSRF binding) ---
+	// The state token alone is portable — anyone who obtains a valid state+code
+	// pair (e.g. from their own login attempt) could otherwise get a victim's
+	// browser to complete this callback and end up logged in as them. The
+	// nonce cookie can only be present if this browser is the one /authz
+	// redirected in the first place, so a missing/mismatched nonce means this
+	// callback was not triggered by the browser that started the login.
+	clearNonceCookie(c, h.cfg.SessionCookieDomain)
+	nonceCookie, err := c.Cookie(oauthNonceCookieName)
+	if err != nil || nonceCookie == "" ||
+		subtle.ConstantTimeCompare([]byte(nonceCookie), []byte(stateClaims.Nonce)) != 1 {
+		log.Printf("auth callback: nonce mismatch or missing (cookie present: %v)", err == nil)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid_state",
+			"message": "login session could not be verified — please try again",
 		})
 		return
 	}
@@ -135,4 +155,21 @@ func (h *AuthCallbackHandler) Callback(c *gin.Context) {
 		originalURL = h.cfg.PublicBaseURL + "/"
 	}
 	c.Redirect(http.StatusFound, originalURL)
+}
+
+// clearNonceCookie deletes the one-time login nonce cookie (MaxAge<0) so it
+// can't be reused for a retried or replayed callback. Called as soon as the
+// nonce has been read, regardless of whether the rest of the callback
+// succeeds.
+func clearNonceCookie(c *gin.Context, domain string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     oauthNonceCookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   domain,
+		MaxAge:   -1,
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

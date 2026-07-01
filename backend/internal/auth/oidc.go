@@ -16,9 +16,22 @@ import (
 // GenerateCodeVerifier produces a cryptographically random PKCE code_verifier
 // (43 URL-safe characters), per RFC 7636.
 func GenerateCodeVerifier() (string, error) {
-	b := make([]byte, 32)
+	return randomURLSafeString(32)
+}
+
+// GenerateNonce produces a cryptographically random, URL-safe value used to
+// bind a login attempt's signed state to the browser that started it (set as
+// a cookie on redirect, echoed back in the state, and compared on callback).
+func GenerateNonce() (string, error) {
+	return randomURLSafeString(32)
+}
+
+// randomURLSafeString returns a base64url-encoded string built from n random
+// bytes.
+func randomURLSafeString(n int) (string, error) {
+	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate code verifier: %w", err)
+		return "", fmt.Errorf("generate random string: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }

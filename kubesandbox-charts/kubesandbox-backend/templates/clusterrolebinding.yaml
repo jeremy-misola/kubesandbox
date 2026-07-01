@@ -1,13 +1,20 @@
 {{- if .Values.rbac.create -}}
+# RoleBinding (not ClusterRoleBinding) — binds the namespace-scoped Role above
+# in .Values.config.namespace to the backend ServiceAccount, which may live in
+# a different namespace (.Release.Namespace, e.g. "kubesandbox") than the one
+# it's granted access to (e.g. "playground"). This is the standard
+# cross-namespace RBAC pattern: the RoleBinding lives in the target namespace
+# and its subject references the ServiceAccount by its own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: {{ include "kubesandbox-backend.fullname" . }}
+  namespace: {{ .Values.config.namespace }}
   labels:
     {{- include "kubesandbox-backend.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: {{ include "kubesandbox-backend.fullname" . }}
 subjects:
   - kind: ServiceAccount

@@ -60,9 +60,21 @@ func VerifySession(token, secret string) (*SessionClaims, error) {
 // token passed to Authentik and returned on the /oauth2/callback). Stateless:
 // the code_verifier and original URL travel in the signed state so no server-side
 // storage is required across replicas.
+//
+// Nonce binds this state to the browser that initiated the login: it is also
+// set as a short-lived cookie when the redirect to Authentik is issued, and
+// the callback must see the same value in both places before trusting the
+// state. Without this, the signed state is self-contained and portable — an
+// attacker who completes their own login can hand their valid code+state pair
+// to a victim (e.g. via a crafted link to /oauth2/callback) and get the
+// victim's browser silently logged in as the attacker (OAuth "login CSRF").
+// The nonce cookie can only have been set by the victim's own prior request
+// to /authz, so a mismatch means the callback wasn't triggered by the same
+// browser that started the flow.
 type StateClaims struct {
 	CodeVerifier string `json:"cv"`
 	OriginalURL  string `json:"url"`
+	Nonce        string `json:"n"`
 	Exp          int64  `json:"exp"` // Unix timestamp (short-lived, ~5 min)
 }
 

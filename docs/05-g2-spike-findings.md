@@ -80,8 +80,10 @@ But with **OIDC + ext-authz** in the same policy, the same request returns
 - The backend `/authz` decision logic is already verified (owner 200 / non-owner
   403 / unknown 403 / no-identity 401 — see handoff §2.8).
 - OIDC redirect target is **`https://kubesandbox.com/oauth2/callback`** — this must
-  be registered as a redirect URI on the **`kubesandbox-backend`** Authentik client
-  (it currently exists for API/JWT use only).
+  be registered as a redirect URI on the **`kubesandbox-backend`** Authentik client.
+  In rev 9, the Terraform workspace now registers that callback automatically and
+  writes the matching client secret/session secret pair into
+  `kubesandbox-backend-client-secret`.
 
 ## 4. Why the specced design fails (summary)
 
@@ -113,6 +115,14 @@ ext-authz-vs-OIDC ordering entirely. Implemented in this changeset (chart 0.1.9)
 - `kubesandbox-session-composition.yaml` — HTTPRoute → kubesandbox ns + ReferenceGrant
 - `securitypolicy-session.yaml` — ext-authz only (OIDC+JWT removed)
 - `httproute-callback.yaml` — unauthenticated `/oauth2/callback` → backend
+- `GitOps-Homelab/operators-helm/operators/kubesandbox-backend/pre-resources/templates/kubesandbox-backend-auth.yaml`
+  — backend Authentik Workspace now generates the `session-secret`, registers
+  `/oauth2/callback`, and writes both secrets into `kubesandbox-backend-client-secret`.
+- `GitOps-Homelab/operators-helm/operators/crossplane/resources/templates/authentik-oidc-app.yaml`
+  — shared Authentik module now supports `additional_redirect_uris`.
+- `kubesandbox-charts/kubesandbox-backend/templates/deployment.yaml` + `values.yaml`
+  — single-Secret pattern: `OIDC_CLIENT_SECRET` and `SESSION_SECRET` both come from
+  `kubesandbox-backend-client-secret`.
 
 **C. Per-session OIDC + an ownership sidecar.** (Not chosen — adds a sidecar.)
 
@@ -120,12 +130,16 @@ ext-authz-vs-OIDC ordering entirely. Implemented in this changeset (chart 0.1.9)
 
 ## 6. Immediate chart fixes (independent of the design choice)
 
+The spike surfaced these fixes; rev 9 completed the provisioning-side pieces and
+the rest were already implemented in chart/backend changes:
+
 - `securitypolicy-session.yaml`: switch OIDC to `clientIDRef`/`clientSecret` Secret
   refs + `refreshToken`; drop inline `clientID`/`forwardAccessToken`.
 - Update the `VERIFICATION REQUIRED` block: note EG **v1.7.1**, same-namespace
   attachment, and the ext-authz-before-OIDC ordering.
 - Register `https://kubesandbox.com/oauth2/callback` on the `kubesandbox-backend`
-  Authentik client before any session-OIDC attempt.
+  Authentik client before any session-OIDC attempt. In rev 9 this is now handled by
+  the Terraform workspace automatically.
 
 ## 7. Test hygiene
 

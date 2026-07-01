@@ -1,23 +1,32 @@
 {{- if .Values.rbac.create -}}
+# Namespace-scoped Role (not ClusterRole) — the backend only ever operates
+# against claims in .Values.config.namespace (SessionService always calls
+# client.Resource(GVR).Namespace(cfg.Namespace)), so this grants the exact
+# same access the backend actually uses, just without cluster-wide reach.
+#
+# SECURITY: this used to be a ClusterRole bound cluster-wide, which let the
+# backend ServiceAccount read every Secret in every namespace on the cluster
+# (Argo/Authentik/other apps' credentials included) if it were ever
+# compromised — a large blast radius for no functional benefit. The `secrets`
+# and `namespaces` grants have been removed entirely: the backend Go code
+# never calls the Secrets or Namespaces API (verified — it only reads
+# OIDC/session secrets via env vars injected by the Helm chart, and vcluster
+# kubeconfig retrieval is done by the ttyd shell pod via a mounted Secret
+# volume, not by the backend). If a future feature needs the backend to read
+# Secrets, add a narrowly-scoped grant for that specific namespace/purpose at
+# that time rather than restoring a cluster-wide one.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: {{ include "kubesandbox-backend.fullname" . }}
+  namespace: {{ .Values.config.namespace }}
   labels:
     {{- include "kubesandbox-backend.labels" . | nindent 4 }}
 rules:
-  # Permission to manage KubeSandboxSession CRDs
+  # Permission to manage KubeSandboxSession claims in this namespace only.
   - apiGroups: ["platform.kubesandbox.com"]
     resources:
       - kubesandboxsessions
       - kubesandboxsessions/status
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Permission to read secrets (for vcluster kubeconfig retrieval)
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list"]
-  # Permission to list namespaces
-  - apiGroups: [""]
-    resources: ["namespaces"]
-    verbs: ["get", "list"]
 {{- end }}

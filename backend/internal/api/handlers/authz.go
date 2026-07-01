@@ -49,6 +49,16 @@ var forwardedPathHeaders = []string{
 	"X-Envoy-Original-Path",
 }
 
+// oauthNonceCookieName holds the per-login-attempt nonce that binds the
+// signed OIDC state to the browser that started the flow (CSRF protection —
+// see the Nonce field doc on auth.StateClaims). Shared between this handler
+// (sets it) and the /oauth2/callback handler (verifies + clears it).
+const oauthNonceCookieName = "kubesandbox_oauth_nonce"
+
+// oauthNonceMaxAge matches the state token's own expiry (5 minutes): the
+// nonce cookie should not outlive the login attempt it belongs to.
+const oauthNonceMaxAge = 5 * time.Minute
+
 // Check handles GET /authz and GET /authz/*.
 func (h *AuthzHandler) Check(c *gin.Context) {
 	// Resolve the original path the browser was requesting (/s/{id}/...).
@@ -99,18 +109,45 @@ func (h *AuthzHandler) redirectToLogin(c *gin.Context, origPath string) {
 	}
 	challenge := auth.CodeChallenge(codeVerifier)
 
+	// Generate a nonce binding this login attempt to the current browser: it
+	// travels both in the signed state (below) and in a cookie set on this
+	// response. /oauth2/callback requires both copies to match, which stops an
+	// attacker from handing their own valid state+code pair to a victim to get
+	// the victim's browser logged in as the attacker (OAuth login CSRF).
+	nonce, err := auth.GenerateNonce()
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
 	// The original URL is stored in the signed state so no server-side storage
 	// is needed. After login, /oauth2/callback redirects back here.
 	originalURL := h.cfg.PublicBaseURL + origPath
 	stateToken, err := auth.SignState(auth.StateClaims{
 		CodeVerifier: codeVerifier,
 		OriginalURL:  originalURL,
+		Nonce:        nonce,
 		Exp:          time.Now().Add(5 * time.Minute).Unix(),
 	}, h.cfg.SessionSecret)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
+
+	// Set the nonce cookie before the redirect. SameSite=Lax (not Strict) is
+	// required: the browser must still send this cookie when Authentik
+	// navigates it back to /oauth2/callback, which is a cross-site top-level
+	// navigation — exactly the case Lax allows and Strict would block.
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     oauthNonceCookieName,
+		Value:    nonce,
+		Path:     "/",
+		Domain:   h.cfg.SessionCookieDomain,
+		MaxAge:   int(oauthNonceMaxAge.Seconds()),
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
 	// Build the Authentik authorization URL.
 	authURL, err := url.Parse(h.cfg.OIDCAuthEndpoint)

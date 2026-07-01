@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -180,6 +181,62 @@ func TestAuthzLoginRedirectHasLocation(t *testing.T) {
 	}
 	if !containsString(loc, cfg.OIDCAuthEndpoint) {
 		t.Fatalf("Location %q does not contain OIDC auth endpoint %q", loc, cfg.OIDCAuthEndpoint)
+	}
+}
+
+// TestAuthzLoginRedirectSetsMatchingNonceCookie verifies the CSRF-binding fix:
+// the redirect-to-login response must set a nonce cookie whose value equals
+// the nonce embedded in the signed `state` query parameter, so /oauth2/callback
+// can confirm the callback came from the same browser that started the login.
+func TestAuthzLoginRedirectSetsMatchingNonceCookie(t *testing.T) {
+	svc := newAuthzService()
+	gin.SetMode(gin.TestMode)
+	cfg := testCfg()
+	r := gin.New()
+	r.GET("/authz", NewAuthzHandler(svc, cfg).Check)
+
+	req := httptest.NewRequest(http.MethodGet, "/authz", nil)
+	req.Header.Set("X-Forwarded-Uri", "/s/playground-s-1a2b3c4d")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", w.Code)
+	}
+
+	var nonceCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == oauthNonceCookieName {
+			nonceCookie = c
+		}
+	}
+	if nonceCookie == nil {
+		t.Fatal("expected a nonce cookie to be set on the login redirect")
+	}
+	if nonceCookie.Value == "" {
+		t.Fatal("nonce cookie value must not be empty")
+	}
+	if !nonceCookie.HttpOnly || !nonceCookie.Secure {
+		t.Fatalf("nonce cookie must be HttpOnly+Secure, got HttpOnly=%v Secure=%v", nonceCookie.HttpOnly, nonceCookie.Secure)
+	}
+	if nonceCookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("nonce cookie SameSite = %v, want Lax (must survive the cross-site redirect from Authentik)", nonceCookie.SameSite)
+	}
+
+	loc, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse Location: %v", err)
+	}
+	stateToken := loc.Query().Get("state")
+	if stateToken == "" {
+		t.Fatal("expected a state query parameter in the redirect")
+	}
+	stateClaims, err := auth.VerifyState(stateToken, cfg.SessionSecret)
+	if err != nil {
+		t.Fatalf("verify state: %v", err)
+	}
+	if stateClaims.Nonce != nonceCookie.Value {
+		t.Fatalf("state nonce %q does not match cookie nonce %q", stateClaims.Nonce, nonceCookie.Value)
 	}
 }
 
