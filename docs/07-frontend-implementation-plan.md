@@ -1,6 +1,8 @@
 # KubeSandbox — Frontend Implementation Plan (G5)
 
-**Status:** in progress — scaffold built, not yet verified live
+**Status:** in progress — scaffold built; SPA→`/api` JWT trust now wired in prod
+(rev 13, see CHANGELOG) but pending live confirmation; auth-bootstrap silent
+renew bug found and fixed this pass (§1.1, §5)
 **Audience:** whoever finishes the frontend SPA (incl. future me)
 **Last updated:** 2026-07-01
 **Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`02-auth-design.md`](./02-auth-design.md) · [`03-implementation-plan.md`](./03-implementation-plan.md) · [`04-backend-handoff.md`](./04-backend-handoff.md) · [`06-frontend-architecture.md`](./06-frontend-architecture.md)
@@ -22,9 +24,11 @@ change, live end-to-end verification of each flow, UX-state and error-handling
 hardening against the design principles, quality gates (lint/tests), and the
 deploy promotion.
 
-Steps are grouped into phases. **Phase 0 is blocking** — without it, a signed-in
-SPA's tokens are rejected by `/api`. Phases 1–4 verify the happy path flow by
-flow. Phases 5–6 harden. Phase 7 ships. Phase 8 is deferred polish.
+Steps are grouped into phases. **Phase 0 is blocking** — its wiring is done as
+of rev 13, but until the rollout is confirmed live (JWKS propagation), a
+signed-in SPA's tokens may still be rejected by `/api`. Phases 1–4 verify the
+happy path flow by flow. Phases 5–6 harden. Phase 7 ships. Phase 8 is deferred
+polish.
 
 Each step lists concrete **files/commands** and an **acceptance** signal. Check
 boxes as you go.
@@ -39,7 +43,7 @@ boxes as you go.
 |---|---|---|
 | Data client + Zod boundary | `src/lib/api.ts`, `src/lib/schemas.ts` | Complete. Bearer on every call, error mapping, `Session`/`CreateSessionRequest` schemas match `models.Session`. |
 | SSE fetch-stream | `src/lib/api.ts` (`streamSessionEvents`) | Complete. Manual `event:`/`data:` frame parsing, heartbeat-tolerant, bearer-attached. |
-| OIDC (PKCE, in-memory) | `src/lib/auth.ts`, `src/context/AuthProvider.tsx`, `src/hooks/useAuth.ts` | Complete. `oidc-client-ts` UserManager, `InMemoryWebStorage`, silent renew, `sub` exposed. |
+| OIDC (PKCE, in-memory) | `src/lib/auth.ts`, `src/context/AuthProvider.tsx`, `src/hooks/useAuth.ts`, `src/pages/CallbackPage.tsx` | Complete. `oidc-client-ts` UserManager, `InMemoryWebStorage`, `sub` exposed. Silent renew on load was fixed this pass (see note below) — previously `AuthProvider` only called `getUser()` on mount and never attempted `signinSilent()`, so every page reload showed "logged out" instantly, before any SSO check happened; `ProtectedRoute` would bounce to `/` before a renew could complete. Fixed by (a) `AuthProvider`'s mount effect now calls `signinSilent()` when no in-memory user is found (skipped when the document is itself the hidden renew iframe), and (b) `CallbackPage` now detects that iframe case (`window.self !== window.top`) and calls `userManager.signinSilentCallback()` to relay the response to the parent instead of running the top-level redirect-callback/navigate flow. |
 | Server-state hooks | `src/hooks/useSessions.ts`, `src/hooks/useSessionEvents.ts` | Complete. TanStack Query keys, optimistic delete, SSE→cache, polling fallback. |
 | Runtime config shim | `src/config.ts`, `index.html`, `docker-entrypoint.sh`, `.env.example` | Complete. `window.__ENV` → `import.meta.env` → default resolution. |
 | Routes + pages | `src/App.tsx`, `src/pages/*` | Present, typecheck clean; **unverified against live backend.** |
@@ -50,7 +54,8 @@ boxes as you go.
 
 | Gap | Where | Phase |
 |---|---|---|
-| SPA tokens 401 on `/api` — frontend JWT provider not trusted | backend chart `securitypolicy-api.yaml` values | **0** |
+| SPA tokens 401 on `/api` — **config now wired** (multi-issuer JWT trust + frontend signing key, rev 13), but rollout isn't confirmed live: the frontend Authentik provider's JWKS fix needs the pre-resources Workspace to re-sync and the 300s Envoy JWKS cache to clear | `GitOps-Homelab` `values-prd.yaml`, `kubesandbox-frontend-auth.yaml`; chart template already supports it (`securitypolicy-api.yaml`) | **0** |
+| Auth-bootstrap silent renew didn't actually run on page load (every refresh looked logged out) | `AuthProvider.tsx`, `CallbackPage.tsx` | **Fixed this pass** — see §1.1 note; still needs live verification against Authentik (Phase 2) |
 | No live verification of login / list / create / SSE / delete / terminal | whole app | 1–4 |
 | Phase enum not confirmed against a real claim (badge colors guessed) | `StatusBadge.tsx`; arch §8 item 6 | 3 |
 | Toasts absent — errors are inline-only; `5xx` retry-toast pattern unimplemented | design-principles §3 | 5 |
@@ -59,7 +64,7 @@ boxes as you go.
 | `lint` script references ESLint but **no eslint config exists** | `frontend/` | 6 |
 | **Zero tests**, no test runner | `frontend/` | 6 |
 | `animejs` is a dependency but **unused** (no status/list-transition polish) | components | 8 (deferred) |
-| shadcn primitives not extracted (`dialog`, `badge`, `input` inline) | `src/components/ui/` | 8 (optional) |
+| shadcn primitives partially extracted — `button.tsx`/`card.tsx` exist in `src/components/ui/`, but `CreateSessionDialog`'s modal and `StatusBadge` are still hand-rolled inline (no `dialog`/`badge` primitives) | `src/components/ui/`, `CreateSessionDialog.tsx`, `StatusBadge.tsx` | 8 (optional) |
 
 ---
 
@@ -71,8 +76,8 @@ items — with **current status** noted, since several are already done.
 | # | Prerequisite | Status | Action |
 |---|---|---|---|
 | P1 | Chart `VITE_API_BASE` = `/api` (not `/api/v1`) | ✅ Done | `kubesandbox-charts/frontend/values.yaml:164` already `/api`. |
-| P2 | **Trust SPA tokens on `/api`** — add `kubesandbox-frontend` issuer+JWKS as a second JWT provider | ⚠️ **Scaffolded, not wired** | Template supports `authentication.jwt.additionalProviders` but backend `values.yaml` leaves it empty and `jwt.issuer/jwksUri` blank. **This is Phase 0.** |
-| P3 | Frontend Authentik client redirect URI == `https://kubesandbox.com/auth/callback` | ⚠️ Confirm | Verify Terraform Workspace registration + chart `authentication.oidc.redirectUrl` — strict match (auth §6.6). |
+| P2 | **Trust SPA tokens on `/api`** — add `kubesandbox-frontend` issuer+JWKS as a second JWT provider | ✅ **Wired in prod, rollout pending (rev 13)** | Repo's `kubesandbox-charts/kubesandbox-backend/values.yaml` keeps `authentication.enabled: false`/blank issuer as the documented default — the real values live in `GitOps-Homelab/.../kubesandbox-backend/values/chart/values-prd.yaml`, which now sets `authentication.enabled: true`, the primary issuer/JWKS, and `additionalProviders` for `kubesandbox-frontend`. The chart template (`securitypolicy-api.yaml`) already renders `additionalProviders` via `range`. **What's left is Phase 0's acceptance check**, not the wiring: the frontend Authentik provider previously published an empty JWKS (fixed by adding a `signing_key` in `kubesandbox-frontend-auth.yaml`), and that fix needs the pre-resources Workspace to re-sync + the Envoy JWKS cache (300s) to clear before a real bearer token will validate. |
+| P3 | Frontend Authentik client redirect URI == `https://kubesandbox.com/auth/callback` | ✅ Confirmed in files | `GitOps-Homelab/.../kubesandbox-frontend-auth.yaml` registers `allowed_redirect_uris` = `https://kubesandbox.com/auth/callback` (strict), matching chart `authentication.oidc.redirectUrl` and `frontend/.env`'s `VITE_OIDC_REDIRECT_URI`. Still worth a live check that the Workspace has actually applied. |
 | P4 | Remove `/terminal` OIDC SecurityPolicy from frontend chart | ✅ Done | `protectedPaths: []` in `kubesandbox-charts/frontend/values.yaml:109`. |
 | P5 | Confirm `phase` enum vocabulary against a live claim | ⬜ Pending | Needed to finalize `StatusBadge` colors (item 6). Done in Phase 3. |
 | P6 | Note cookie-lifetime-vs-TTL in UI copy | ⬜ Minor | 8h session cookie vs. up-to-1440m TTL → possible silent re-auth mid-session (auth §6.4). Copy tweak in Phase 5. |
@@ -81,48 +86,70 @@ items — with **current status** noted, since several are already done.
 
 ## 3. Phase 0 — Unblock live auth (BLOCKING)
 
-Without this, a user can sign into the SPA but **every `/api` call returns
-401**, because the SPA's bearer carries the `kubesandbox-frontend` issuer and
-the `/api` JWT policy only trusts the backend issuer.
+**Update (rev 13, CHANGELOG):** the wiring for this phase is done — both in the
+chart template and in the prod values override — but the acceptance check
+(a real bearer token actually validating end to end) is **not yet confirmed
+live**, pending a Workspace re-sync and the Envoy JWKS cache clearing. Treat
+0.1–0.3 below as done; what's open is re-verifying 0.4/acceptance after the
+rollout lands.
 
-> Note: in the backend chart `authentication.enabled` is currently `false` and
-> the primary provider's `issuer`/`jwksUri` are blank — so Phase 0 also means
-> **turning the JWT policy on** with real values for both providers, not just
-> appending the frontend one.
-
-- [ ] **0.1 Wire the second JWT provider.** In
-  `kubesandbox-charts/kubesandbox-backend/values.yaml`, set
-  `authentication.jwt.additionalProviders` to include the frontend client:
+- [x] **0.1 Wire the second JWT provider.** Done in
+  `GitOps-Homelab/operators-helm/operators/kubesandbox-backend/values/chart/values-prd.yaml`
+  (not the in-repo `kubesandbox-charts/kubesandbox-backend/values.yaml`, which
+  intentionally keeps `authentication.enabled: false` / blank issuer as the
+  chart's documented default — real environment values live in the separate
+  GitOps-Homelab repo):
 
   ```yaml
   authentication:
     enabled: true
     jwt:
-      # ...primary backend provider (issuer/jwksUri) filled in...
+      issuer: "https://auth.jeremymr.dev/application/o/kubesandbox-backend/"
+      jwksUri: "https://auth.jeremymr.dev/application/o/kubesandbox-backend/jwks/"
       additionalProviders:
         - name: kubesandbox-frontend
           issuer: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/"
           jwksUri: "https://auth.jeremymr.dev/application/o/kubesandbox-frontend/jwks/"
           claimToHeaders:
-            - header: X-User-Id
-              claim: sub
-            # mirror the backend provider's claimToHeaders
+            - { claim: sub, header: X-User-Id }
+            - { claim: email, header: X-User-Email }
+            - { claim: name, header: X-User-Name }
+            - { claim: groups, header: X-User-Groups }
   ```
 
-  Keep `claimToHeaders` (`sub → X-User-Id`, …) on **both** providers so
+  `claimToHeaders` mirrors the primary provider on both, so
   `IdentityMiddleware` sees `X-User-Id` regardless of which client issued the
-  token (arch §4.1).
-- [ ] **0.2 Confirm the frontend provider is RS256 / has a populated JWKS.** The
-  CHANGELOG notes the backend client needed `issuer_mode: per_provider` for a
-  real JWKS. Verify the frontend client's `.../jwks/` endpoint returns keys, not
-  an empty set — else JWT validation fails the same way.
-- [ ] **0.3 Render + lint the chart.** `helm template` / `helm lint` the backend
-  chart; confirm the `SecurityPolicy` emits two providers.
-- [ ] **0.4 Deploy** (ArgoCD sync the backend app) and confirm the policy is live.
+  token (arch §4.1). Chart template
+  (`kubesandbox-charts/kubesandbox-backend/templates/securitypolicy-api.yaml`)
+  already `range`s over `additionalProviders` — no template change needed.
+- [x] **0.2 Confirm the frontend provider is RS256 / has a populated JWKS —
+  fix landed.** Root cause found live: the `kubesandbox-frontend` Terraform
+  Workspace never set a `signing_key`, so Authentik published an empty JWKS
+  (`{}`) and `/api` 401'd with "Jwks remote fetch is failed" even after 0.1.
+  Fixed in
+  `GitOps-Homelab/.../kubesandbox-frontend/pre-resources/templates/kubesandbox-frontend-auth.yaml`
+  by adding a `signing_key_name` var + `authentik_certificate_key_pair` data
+  source and setting `signing_key`, `issuer_mode = "per_provider"`,
+  `sub_mode = "hashed_user_id"` on the frontend provider (mirrors the backend
+  client). **Not yet verified live** — rollout requires: sync the frontend
+  pre-resources ArgoCD app → confirm
+  `.../kubesandbox-frontend/jwks/` returns `{"keys":[…]}` (not `{}`) → wait out
+  Envoy's 300s JWKS cache (or bounce the gateway pod) → re-login in the SPA for
+  a fresh RS256-signed token.
+- [x] **0.3 Render + lint the chart.** Template confirmed by inspection to
+  render both providers correctly (`{{- range .Values.authentication.jwt.additionalProviders }}`
+  in `securitypolicy-api.yaml`); re-run `helm template`/`helm lint` after any
+  further values changes as a sanity check.
+- [ ] **0.4 Deploy & confirm live.** ArgoCD sync the backend app (and the
+  frontend pre-resources app for 0.2) if not already synced; confirm the
+  `SecurityPolicy` is `Accepted` with both providers (already true for the
+  backend provider per CHANGELOG rev 13 — pending re-confirmation for the
+  frontend one after the JWKS fix rolls out).
 
-**Acceptance:** with a real SPA token,
+**Acceptance (still open):** with a real SPA token,
 `curl -H "Authorization: Bearer <token>" https://kubesandbox.com/api/sessions`
-→ `200`, and the backend logs show `X-User-Id` populated (arch §8 item 3).
+→ `200`, and the backend logs show `X-User-Id` populated (arch §8 item 3). This
+is also tracked as the last open item in `docs/02-auth-design.md` §7.
 
 ---
 
@@ -152,7 +179,13 @@ Get a fast inner loop before touching prod.
   completes PKCE → lands on `/dashboard`. Confirm `CallbackPage`'s StrictMode
   double-run guard holds (no duplicate token exchange).
 - [ ] **2.2 In-memory posture.** Confirm no tokens land in `localStorage`;
-  reload triggers silent renew against the Authentik SSO session.
+  reload triggers silent renew against the Authentik SSO session. **Code fixed
+  this pass** — `AuthProvider` previously never attempted `signinSilent()` on
+  load (it only read the now-empty in-memory store and let `ProtectedRoute`
+  redirect before any renew could happen); `CallbackPage` didn't handle being
+  loaded inside the hidden renew iframe either. Both are fixed (§1.1). Still
+  needs a live browser check against Authentik once P2's rollout (Phase 0) is
+  confirmed.
 - [ ] **2.3 `returnTo`.** Deep-link to `/dashboard/:id` while logged out →
   bounce to login → return to the intended route after callback.
 - [ ] **2.4 Guarded routes.** `ProtectedRoute` redirects unauthenticated users;
@@ -289,9 +322,11 @@ correct.
 - [ ] **8.1 anime.js.** It's already a dependency but unused. Add light polish
   only — status-badge transitions, list enter/leave (arch §2, design-principles
   §8.1). Keep it additive; respect `prefers-reduced-motion`.
-- [ ] **8.2 shadcn extraction.** Optionally extract inline UI into
-  `components/ui/{dialog,badge,input}.tsx` for consistency with the `ui/`
-  convention (design-principles §9). Cosmetic — current inline versions work.
+- [ ] **8.2 shadcn extraction.** `button.tsx`/`card.tsx` already live in
+  `components/ui/`. Optionally extract the rest — `CreateSessionDialog`'s modal
+  markup and `StatusBadge` — into `components/ui/{dialog,badge}.tsx` for
+  consistency with the `ui/` convention (design-principles §9). Cosmetic —
+  current inline versions work.
 - [ ] **8.3 Immersive visuals (explicitly out of scope for first ship).**
   react-three-fiber / ShaderGradient / liquid-glass live in
   `useful-repos-for-frontend/` and are a later pass (arch §2).
