@@ -31,6 +31,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
+    // Register the event listeners FIRST, unconditionally. CallbackPage
+    // completes the explicit sign-in via completeLogin(), and the only way
+    // AuthProvider learns about that user is the `userLoaded` event — so the
+    // listeners must be in place even on the callback route. (Previously they
+    // were registered after the early return below, so a successful login
+    // never reached React state and ProtectedRoute bounced back to "/".)
+    const onLoaded = (u: User) => setUser(u);
+    const onUnloaded = () => setUser(null);
+    userManager.events.addUserLoaded(onLoaded);
+    userManager.events.addUserUnloaded(onUnloaded);
+    userManager.events.addAccessTokenExpired(onUnloaded);
+
+    const cleanup = () => {
+      active = false;
+      userManager.events.removeUserLoaded(onLoaded);
+      userManager.events.removeUserUnloaded(onUnloaded);
+      userManager.events.removeAccessTokenExpired(onUnloaded);
+    };
+
     const isSilentRenewIframe = window.self !== window.top;
     const isOidcCallbackRoute =
       window.location.pathname === new URL(config.oidc.redirectUri).pathname;
@@ -45,14 +64,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     //     CallbackPage owns completing that flow via completeLogin(). Running a
     //     second, redundant signinSilent() here races against it: it spins up
     //     its own iframe round trip to Authentik and, if it resolves after (or
-    //     fails independently from) the real login, its `catch` branch below
-    //     would overwrite the just-established session with `null` — which is
-    //     exactly what caused "login succeeds, then immediately bounces back to
-    //     the landing page". AuthProvider still picks up the real result via the
-    //     `userLoaded` event listener registered below.
+    //     fails independently from) the real login, its `catch` branch would
+    //     overwrite the just-established session with `null`. AuthProvider
+    //     picks up the real result via the `userLoaded` listener above.
     if (isSilentRenewIframe || isOidcCallbackRoute) {
       setLoading(false);
-      return;
+      return cleanup;
     }
 
     // Access tokens live in memory only (see lib/auth.ts), so a page reload
@@ -71,18 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (active) setUser(u);
     })().finally(() => active && setLoading(false));
 
-    const onLoaded = (u: User) => setUser(u);
-    const onUnloaded = () => setUser(null);
-    userManager.events.addUserLoaded(onLoaded);
-    userManager.events.addUserUnloaded(onUnloaded);
-    userManager.events.addAccessTokenExpired(onUnloaded);
-
-    return () => {
-      active = false;
-      userManager.events.removeUserLoaded(onLoaded);
-      userManager.events.removeUserUnloaded(onUnloaded);
-      userManager.events.removeAccessTokenExpired(onUnloaded);
-    };
+    return cleanup;
   }, []);
 
   const login = useCallback((targetPath?: string) => doLogin(targetPath), []);
