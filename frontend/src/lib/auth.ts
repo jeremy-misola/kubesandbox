@@ -49,17 +49,16 @@ export async function logout(): Promise<void> {
   await userManager.signoutRedirect();
 }
 
-export async function getUser(): Promise<User | null> {
-  return userManager.getUser();
-}
-
 /**
  * Returns a fresh access token, renewing silently if expired. Throws if the
  * user is not signed in (callers should redirect to login).
  */
 export async function getAccessToken(): Promise<string> {
   let user = await userManager.getUser();
-  if (!user || user.expired) {
+  // Only renew when a stored user exists (it carries the refresh token).
+  // With no stored user, signinSilent() would fall back to the cross-site
+  // iframe flow, which always fails — but only after several seconds.
+  if (user?.expired) {
     try {
       user = await userManager.signinSilent();
     } catch {

@@ -7,6 +7,64 @@ today. Newest first.
 
 ---
 
+## rev 14 — 2026-07-01 — SPA auth: refresh tokens replace broken cross-site silent renew
+
+Fixed two live SPA auth bugs, both rooted in the same design flaw: docs/06
+§4.1's "in-memory tokens + iframe silent renew" posture doesn't work when the
+app (`kubesandbox.com`) and Authentik (`auth.jeremymr.dev`) are **cross-site**.
+Authentik's `SameSite=Lax` session cookie is never sent inside the hidden
+`prompt=none` iframe (and Safari/Chrome block third-party cookies outright),
+so `signinSilent()` always ends in `login_required`.
+
+Symptoms fixed:
+1. **Every page refresh logged the user out** — reload started with no
+   in-memory user, the iframe renew failed as above, and `ProtectedRoute`
+   bounced to `/`.
+2. **Landing page "Sign in" button disabled for ~5 s** — for signed-out
+   visitors, `AuthProvider` ran the same doomed `signinSilent()`: full
+   Authentik round trip + booting the entire SPA bundle inside the hidden
+   iframe at `/auth/callback` before the failure relayed back and `loading`
+   flipped false.
+
+New token posture (revises docs/06 §4.1/§5):
+- **`offline_access` scope + refresh tokens.** Renewal is now a direct fetch
+  to the token endpoint — no iframe, no third-party cookies. Requires the
+  `offline_access` scope mapping on the Authentik provider (see Terraform
+  change below).
+- **OIDC user stored in `sessionStorage`** (was `InMemoryWebStorage`) —
+  per-tab, cleared on tab close, survives refresh; still never `localStorage`.
+- **`signinSilent()` only attempted when a stored user exists** (it carries
+  the refresh token). No stored user ⇒ signed out immediately — this is what
+  un-sticks the landing button. Applied in both `AuthProvider` startup and
+  `getAccessToken()`.
+
+Dead code removed with the iframe flow: `CallbackPage`'s
+`signinSilentCallback()` relay-to-parent branch, `AuthProvider`'s
+`isSilentRenewIframe` guard, and the unused `getUser()` export in `lib/auth.ts`.
+
+Terraform (Crossplane Workspace): the frontend provider now sets
+`property_mappings` explicitly via an `authentik_property_mapping_provider_scope`
+data source — the default `openid`/`email`/`profile` mappings (previously
+auto-attached by Authentik when the field was omitted) are pinned, plus
+`offline_access`. Without the mapping Authentik silently ignores the scope and
+issues no refresh token.
+
+Rollout: sync frontend pre-resources (Workspace re-applies) → rebuild/deploy
+the SPA image → existing sessions have no refresh token, so sign out/in once.
+`tsc --noEmit` + `vite build` clean; not yet verified live.
+
+Files:
+- `kubesandbox/frontend/src/lib/auth.ts` — `sessionStorage` userStore;
+  renew-only-if-user-exists in `getAccessToken()`; dropped unused `getUser()`.
+- `kubesandbox/frontend/src/config.ts` — scope += `offline_access`.
+- `kubesandbox/frontend/src/context/AuthProvider.tsx` — skip silent sign-in
+  when no stored user; removed iframe guard.
+- `kubesandbox/frontend/src/pages/CallbackPage.tsx` — removed iframe relay branch.
+- `GitOps-Homelab/operators-helm/operators/kubesandbox-frontend/pre-resources/templates/kubesandbox-frontend-auth.yaml`
+  — explicit `property_mappings` incl. `offline_access`.
+
+---
+
 ## rev 13 — 2026-07-01 — G5 frontend design + SPA→/api auth enablement
 
 Started **G5 (frontend SPA)** and unblocked the SPA→`/api` bearer path end to
