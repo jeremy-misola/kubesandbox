@@ -88,6 +88,12 @@ export function useCreateSession() {
     mutationFn: (body: CreateSessionRequest) => api.createSession(body),
     onSuccess: (session) => {
       qc.setQueryData(queryKeys.session(session.id), session);
+      // Seed the list cache so the new card (and its provisioning progress)
+      // appears the instant the dialog closes, not after the refetch
+      // (design-principles §2.4 Optimistic UI — here with a confirmed row).
+      qc.setQueryData<Session[]>(queryKeys.sessions, (old) =>
+        old && !old.some((s) => s.id === session.id) ? [...old, session] : old,
+      );
       qc.invalidateQueries({ queryKey: queryKeys.sessions });
     },
   });

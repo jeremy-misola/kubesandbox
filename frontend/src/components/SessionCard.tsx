@@ -4,8 +4,10 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, TerminalChrome } from "@/components/ui/card";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
+import { ProvisioningProgress } from "@/components/ProvisioningProgress";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useDeleteSession } from "@/hooks/useSessions";
+import { useSessionEvents } from "@/hooks/useSessionEvents";
 import { terminalUrl } from "@/config";
 import { timeLeft } from "@/lib/utils";
 import type { Session } from "@/lib/schemas";
@@ -16,6 +18,24 @@ export function SessionCard({ session }: { session: Session }) {
   const del = useDeleteSession();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const left = timeLeft(session.expiresAt);
+
+  // Provisioning takes ~5 min (well past the 10s threshold in
+  // design-principles §1), so the card carries a determinate indicator until
+  // the workspace is ready. It stays mounted through the ready flip so its
+  // completion animation can play, then dismisses itself via onDone.
+  const provisioning =
+    !session.workspaceReady &&
+    session.phase !== "Error" &&
+    session.phase !== "Unknown";
+  const [progressVisible, setProgressVisible] = useState(provisioning);
+
+  // Live phase updates for this card while it provisions (SSE, with the
+  // hook's built-in polling fallback). Without this, the list only learns
+  // about readiness on a manual refetch.
+  useSessionEvents(session.id, provisioning);
+
+  const showProgress =
+    progressVisible && session.phase !== "Error" && session.phase !== "Unknown";
 
   return (
     <Card className="flex flex-col overflow-hidden p-0">
@@ -54,7 +74,14 @@ export function SessionCard({ session }: { session: Session }) {
           ))}
         </dl>
 
-        {session.message && !session.workspaceReady && (
+        {showProgress && (
+          <ProvisioningProgress
+            session={session}
+            onDone={() => setProgressVisible(false)}
+          />
+        )}
+
+        {session.message && !session.workspaceReady && !showProgress && (
           <p className="rounded-md border border-warning/20 bg-warning/5 px-2.5 py-1.5 font-mono text-xs text-warning/90">
             {session.message}
           </p>
