@@ -41,9 +41,16 @@ export const config = {
   },
 } as const;
 
-/** Build the browser terminal URL for a session id. */
+/**
+ * Build the browser terminal URL for a session id.
+ *
+ * The trailing slash is load-bearing: the backend 301s `/s/{id}` →
+ * `/s/{id}/`, and that redirect (a) is indistinguishable from the auth
+ * redirect when probing with `redirect: "manual"`, and (b) drops the ttyd
+ * theme query string. Hitting the canonical URL avoids both.
+ */
 export function terminalUrl(id: string): string {
-  return `${config.publicBaseUrl}/s/${id}`;
+  return `${config.publicBaseUrl}/s/${id}/`;
 }
 
 /**

@@ -124,15 +124,25 @@ export function TerminalFrame({
     setAuthState(popup ? "pending" : "blocked");
   }, [id]);
 
-  // While waiting on the popup: watch for it to land back on our origin
-  // (auth finished), re-probe as a fallback, and re-check when it closes.
+  /**
+   * While waiting on the popup, watch its LOCATION — never poll the server.
+   *
+   * Every unauthenticated GET to /s/{id}/ makes the backend start a fresh
+   * OIDC flow and rotate the state cookie, which invalidates whatever login
+   * is mid-flight in the popup ("invalid_state — login session could not be
+   * verified"). So while a popup is open we only read `popup.location`,
+   * which never touches the server: it throws while the popup is on
+   * Authentik (cross-origin) and becomes readable again once the flow lands
+   * back on /s/{id}/ on our origin — THAT is the completion signal, and only
+   * then do we probe once and boot the frame.
+   */
   useEffect(() => {
     if (phase !== "auth") return;
     let cancelled = false;
     let probing = false;
 
-    const checkProbe = async () => {
-      if (probing) return;
+    const tryConnect = async () => {
+      if (probing || cancelled) return;
       probing = true;
       const ok = (await probe()) === "ok";
       probing = false;
@@ -141,35 +151,40 @@ export function TerminalFrame({
 
     const watch = window.setInterval(() => {
       const popup = popupRef.current;
-      if (popup) {
-        if (popup.closed) {
-          // User closed it (or we did after a completed flow elsewhere).
-          popupRef.current = null;
-          setAuthState("idle");
-          void checkProbe();
-          return;
-        }
-        try {
-          // Throws while the popup is on Authentik (cross-origin); readable
-          // again once the flow redirects back to /s/{id} on our origin.
-          if (popup.location.origin === window.location.origin) {
-            void checkProbe();
-          }
-        } catch {
-          /* still on the identity provider */
-        }
+      if (!popup) return;
+      if (popup.closed) {
+        popupRef.current = null;
+        setAuthState("idle");
+        void tryConnect();
+        return;
       }
-    }, 500);
+      try {
+        const loc = popup.location;
+        // Same-origin AND on /s/ — the callback already set the session
+        // cookie and redirected. (/oauth2/callback is also same-origin, but
+        // probing at that instant could restart the flow; wait it out.)
+        if (
+          loc.origin === window.location.origin &&
+          loc.pathname.startsWith("/s/")
+        ) {
+          void tryConnect();
+        }
+      } catch {
+        /* still on the identity provider */
+      }
+    }, 400);
 
-    // Fallbacks: slow poll + focus, in case the popup handle is unusable.
-    const poll = window.setInterval(checkProbe, 3000);
-    const onFocus = () => void checkProbe();
+    // Fallback for a severed popup handle (e.g. COOP): re-probe on focus,
+    // but only when no live popup exists — never mid-flow.
+    const onFocus = () => {
+      const popup = popupRef.current;
+      if (!popup || popup.closed) void tryConnect();
+    };
     window.addEventListener("focus", onFocus);
 
     return () => {
       cancelled = true;
       window.clearInterval(watch);
-      window.clearInterval(poll);
       window.removeEventListener("focus", onFocus);
     };
   }, [phase, probe, connect]);
