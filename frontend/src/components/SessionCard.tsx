@@ -60,13 +60,7 @@ export function SessionCard({ session }: { session: Session }) {
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-3">
-        <Link
-          to={`/dashboard/${session.id}`}
-          className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          details →
-        </Link>
+      <div className="flex items-center justify-end gap-2 border-t border-border/70 px-4 py-3">
         <div className="flex gap-2">
           <Link
             to={`/terminal/${session.id}`}

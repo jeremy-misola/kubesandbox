@@ -47,10 +47,10 @@ export function TerminalPage() {
       <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
         <div className="flex items-center gap-3">
           <Link
-            to={`/dashboard/${id}`}
+            to="/dashboard"
             className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            ← session
+            ← dashboard
           </Link>
           <h1 className="font-display text-base font-semibold tracking-tight">
             {session ? "Kubernetes sandbox" : `s/${id}`}
@@ -117,10 +117,10 @@ function NewTabHandoff({ id }: { id: string }) {
           </a>
           <div className="mt-4">
             <Link
-              to={`/dashboard/${id}`}
+              to="/dashboard"
               className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              ← back to session
+              ← back to dashboard
             </Link>
           </div>
         </div>

@@ -5,7 +5,6 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LandingPage } from "@/pages/LandingPage";
 import { CallbackPage } from "@/pages/CallbackPage";
 import { DashboardPage } from "@/pages/DashboardPage";
-import { SessionDetailPage } from "@/pages/SessionDetailPage";
 import { TerminalPage } from "@/pages/TerminalPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -20,14 +19,6 @@ export default function App() {
           element={
             <ProtectedRoute>
               <DashboardPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/dashboard/:id"
-          element={
-            <ProtectedRoute>
-              <SessionDetailPage />
             </ProtectedRoute>
           }
         />
