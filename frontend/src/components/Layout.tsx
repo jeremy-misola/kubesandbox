@@ -98,7 +98,18 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
+      {/* The embedded terminal wants room: wider column, tighter padding,
+          and a flex column so the frame can fill the viewport height. */}
+      <main
+        className={cn(
+          "mx-auto flex w-full flex-1 flex-col px-4",
+          pathname.startsWith("/terminal")
+            ? "max-w-7xl py-5"
+            : "max-w-5xl py-8",
+        )}
+      >
+        {children}
+      </main>
 
       <footer className="border-t border-border/60 py-4">
         <p className="mx-auto max-w-5xl px-4 font-mono text-[11px] text-muted-foreground/70">

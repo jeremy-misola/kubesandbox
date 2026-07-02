@@ -134,13 +134,25 @@ export function SessionDetailPage() {
           )}
 
           <div className="mt-6 flex items-center gap-3">
-            <a href={terminalUrl(session.id)} target="_blank" rel="noreferrer">
+            <Link
+              to={`/terminal/${session.id}`}
+              tabIndex={session.workspaceReady ? undefined : -1}
+              aria-disabled={!session.workspaceReady}
+              className={
+                !session.workspaceReady ? "pointer-events-none" : undefined
+              }
+            >
               <Button disabled={!session.workspaceReady}>Open terminal</Button>
-            </a>
+            </Link>
             {session.workspaceReady && (
-              <span className="font-mono text-xs text-muted-foreground">
-                opens in a new tab
-              </span>
+              <a
+                href={terminalUrl(session.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                new tab ↗
+              </a>
             )}
           </div>
         </div>

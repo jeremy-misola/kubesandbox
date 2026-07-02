@@ -6,7 +6,6 @@ import { Card, TerminalChrome } from "@/components/ui/card";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useDeleteSession } from "@/hooks/useSessions";
-import { terminalUrl } from "@/config";
 import { timeLeft } from "@/lib/utils";
 import type { Session } from "@/lib/schemas";
 
@@ -69,11 +68,16 @@ export function SessionCard({ session }: { session: Session }) {
           details →
         </Link>
         <div className="flex gap-2">
-          <a href={terminalUrl(session.id)} target="_blank" rel="noreferrer">
+          <Link
+            to={`/terminal/${session.id}`}
+            tabIndex={session.workspaceReady ? undefined : -1}
+            aria-disabled={!session.workspaceReady}
+            className={!session.workspaceReady ? "pointer-events-none" : undefined}
+          >
             <Button size="sm" disabled={!session.workspaceReady}>
               Open terminal
             </Button>
-          </a>
+          </Link>
           <Button
             size="sm"
             variant="danger"
