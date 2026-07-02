@@ -29,59 +29,41 @@ var GVR = schema.GroupVersionResource{
 	Resource: Plural,
 }
 
-// Profile controls the default resource shape of a session.
-type Profile string
-
-const (
-	ProfileStarter  Profile = "starter"
-	ProfileStandard Profile = "standard"
-	ProfileAdvanced Profile = "advanced"
-)
-
 // Resources is the CPU/memory request+limit applied to the shell pod.
 type Resources struct {
 	CPU    string `json:"cpu"`
 	Memory string `json:"memory"`
 }
 
-// profileResources maps each profile to its resource shape (per the plan).
-var profileResources = map[Profile]Resources{
-	ProfileStarter:  {CPU: "250m", Memory: "256Mi"},
-	ProfileStandard: {CPU: "500m", Memory: "512Mi"},
-	ProfileAdvanced: {CPU: "1", Memory: "1Gi"},
-}
-
-// Valid reports whether p is a known profile.
-func (p Profile) Valid() bool {
-	_, ok := profileResources[p]
-	return ok
-}
-
-// Resources returns the resource shape for the profile (zero value if unknown).
-func (p Profile) Resources() Resources {
-	return profileResources[p]
-}
+// DefaultResources is the single uniform sandbox shape. The platform was
+// collapsed to ONE sandbox type (sign-off 2026-07-02, docs/08 §2.2): the
+// starter/standard/advanced profiles are gone, which is what makes warm pool
+// members globally fungible — any warm sandbox can be handed to any user.
+var DefaultResources = Resources{CPU: "500m", Memory: "512Mi"}
 
 // CreateSessionRequest is the JSON body of POST /api/sessions.
+//
+// Note: there is no profile — every sandbox is identical (single-type
+// platform). workspaceImage/starterLabRef are honored only on the legacy
+// direct-create path; hot-pool assignment hands over a pre-provisioned,
+// uniform sandbox.
 type CreateSessionRequest struct {
-	Profile        Profile `json:"profile"`
-	TTLMinutes     int     `json:"ttlMinutes,omitempty"`
-	WorkspaceImage string  `json:"workspaceImage,omitempty"`
-	StarterLabRef  string  `json:"starterLabRef,omitempty"`
+	TTLMinutes     int    `json:"ttlMinutes,omitempty"`
+	WorkspaceImage string `json:"workspaceImage,omitempty"`
+	StarterLabRef  string `json:"starterLabRef,omitempty"`
 }
 
 // Session is the API representation of a KubeSandboxSession returned to clients.
 type Session struct {
 	// ID is the public, opaque identifier and routing key: "{namespace}-{name}".
 	ID string `json:"id"`
-	// Name is the underlying opaque claim name, e.g. "s-1a2b3c4d".
+	// Name is the underlying opaque claim name, e.g. "s-1a2b3c4d" or "s-pool-…".
 	Name string `json:"name"`
 	// Namespace is the claim namespace (the backend's configured namespace).
 	Namespace string `json:"namespace"`
 
 	TenantRef      string    `json:"tenantRef"`
 	OwnerRef       string    `json:"ownerRef"`
-	Profile        string    `json:"profile"`
 	TTLMinutes     int       `json:"ttlMinutes"`
 	WorkspaceImage string    `json:"workspaceImage"`
 	StarterLabRef  string    `json:"starterLabRef,omitempty"`
@@ -97,4 +79,13 @@ type Session struct {
 	// URL is the browser terminal URL: "{PublicBaseURL}/s/{id}".
 	URL       string `json:"url,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
+}
+
+// QueueStatus is returned when the warm pool is empty and the request has been
+// queued (Phase E). The client should follow /api/queue/events (SSE) for
+// progress and the assigned session.
+type QueueStatus struct {
+	Status   string `json:"status"` // always "queued"
+	Position int    `json:"position"`
+	Message  string `json:"message,omitempty"`
 }

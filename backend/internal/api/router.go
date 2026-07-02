@@ -22,7 +22,7 @@ import (
 //	                                  redirect to Authentik; valid → ownership check.
 //	GET  /oauth2/callback          — OIDC callback: exchange code, set session
 //	                                  cookie, redirect to original URL. No auth.
-func NewRouter(cfg config.Config, svc *k8s.SessionService) *gin.Engine {
+func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
@@ -30,7 +30,7 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService) *gin.Engine {
 	r.GET("/health", handlers.Health)
 	r.GET("/healthz", handlers.Health)
 
-	sessions := handlers.NewSessionHandler(svc)
+	sessions := handlers.NewSessionHandler(svc, queue, cfg.PoolEnabled)
 
 	api := r.Group("/api")
 	api.Use(middleware.IdentityMiddleware(cfg))
@@ -41,6 +41,9 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService) *gin.Engine {
 		api.GET("/sessions/:id", sessions.Get)
 		api.DELETE("/sessions/:id", sessions.Delete)
 		api.GET("/sessions/:id/events", sessions.Events)
+		// Warm-pool queue (Phase E): poll + SSE progress for queued creates.
+		api.GET("/queue", sessions.QueuePosition)
+		api.GET("/queue/events", sessions.QueueEvents)
 	}
 
 	// Ext-authz (ForwardAuth) endpoint for the per-session SecurityPolicy (G2

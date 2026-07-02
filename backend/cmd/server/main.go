@@ -36,7 +36,8 @@ func main() {
 		models.DefaultWorkspaceImage,
 	)
 
-	router := api.NewRouter(cfg, svc)
+	queue := k8s.NewAssignQueue()
+	router := api.NewRouter(cfg, svc, queue)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -50,6 +51,19 @@ func main() {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	ttl := k8s.NewTTLController(svc, cfg.TTLCleanupInterval)
 	go ttl.Run(bgCtx)
+
+	// Hot warm-pool manager (docs/10 Phase B): keeps N unclaimed sandboxes
+	// running so creates are a metadata-only assignment; admits queued
+	// requests; recycles stale members. Strictly off the request path.
+	if cfg.PoolEnabled {
+		pool := k8s.NewPoolManager(svc, queue, k8s.PoolConfig{
+			TargetWarm: cfg.PoolTargetWarm,
+			MaxTotal:   cfg.PoolMaxTotal,
+			MaxWarmAge: cfg.PoolMaxWarmAge,
+			Resync:     cfg.PoolResync,
+		})
+		go pool.Run(bgCtx)
+	}
 
 	// Run the server.
 	go func() {

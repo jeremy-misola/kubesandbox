@@ -47,13 +47,27 @@ func claim(name string, created time.Time, ttlMinutes int, expiresAt string, del
 
 func newTTLService(objs ...runtime.Object) *SessionService {
 	scheme := runtime.NewScheme()
-	listKinds := map[schema.GroupVersionResource]string{models.GVR: models.Kind + "List"}
+	listKinds := map[schema.GroupVersionResource]string{
+		models.GVR:   models.Kind + "List",
+		configMapGVR: "ConfigMapList",
+	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, objs...)
 	return NewSessionService(client, "playground", "https://kubesandbox.com", models.DefaultWorkspaceImage)
 }
 
 func TestClaimExpiry(t *testing.T) {
 	base := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+
+	t.Run("prefers spec.expiresAt over everything (TTL starts at assignment)", func(t *testing.T) {
+		c := claim("s-0", base, 60, "2026-06-26T12:30:00Z", false)
+		// Assignment stamped a later spec.expiresAt (warm member handed over
+		// well after creation): it must win over status and creation+ttl.
+		_ = unstructured.SetNestedField(c.Object, "2026-06-26T14:45:00Z", "spec", "expiresAt")
+		got, ok := claimExpiry(c)
+		if !ok || !got.Equal(time.Date(2026, 6, 26, 14, 45, 0, 0, time.UTC)) {
+			t.Fatalf("got (%v, %v)", got, ok)
+		}
+	})
 
 	t.Run("prefers status.expiresAt", func(t *testing.T) {
 		c := claim("s-1", base, 60, "2026-06-26T12:30:00Z", false)
@@ -113,5 +127,67 @@ func TestReconcileOnce(t *testing.T) {
 	}
 	if !got["s-fresh"] {
 		t.Fatalf("fresh claim must survive: %v", got)
+	}
+}
+
+func TestReconcileSkipsUnclaimedPoolMembers(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+
+	// An available warm member "expired" by the creation+ttl fallback — it
+	// must NOT be reaped: its TTL starts at assignment, and freshness
+	// recycling (pool manager) owns its lifecycle.
+	warm := claim("s-pool-warm", now.Add(-3*time.Hour), 60, "", false)
+	labels, _, _ := unstructured.NestedMap(warm.Object, "metadata", "labels")
+	labels[poolLabel] = poolAvailable
+	_ = unstructured.SetNestedMap(warm.Object, labels, "metadata", "labels")
+
+	// A CLAIMED pool member whose assignment-time expiry has passed — reaped.
+	assigned := claim("s-pool-done", now.Add(-3*time.Hour), 60, "", false)
+	alabels, _, _ := unstructured.NestedMap(assigned.Object, "metadata", "labels")
+	alabels[poolLabel] = poolClaimed
+	_ = unstructured.SetNestedMap(assigned.Object, alabels, "metadata", "labels")
+	_ = unstructured.SetNestedField(assigned.Object, now.Add(-time.Minute).Format(time.RFC3339), "spec", "expiresAt")
+
+	svc := newTTLService(warm, assigned)
+	ctrl := NewTTLController(svc, time.Minute)
+	ctrl.now = func() time.Time { return now }
+
+	deleted, err := ctrl.reconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("reconcileOnce: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1 (only the claimed+expired member)", deleted)
+	}
+	remaining, _ := svc.listManaged(context.Background())
+	if len(remaining) != 1 || remaining[0].GetName() != "s-pool-warm" {
+		t.Fatalf("warm member must survive, got %v", remaining)
+	}
+}
+
+func TestReconcileReleasesOwnerMarker(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+
+	expired := claim("s-pool-x", now.Add(-2*time.Hour), 60, "", false)
+	_ = unstructured.SetNestedField(expired.Object, now.Add(-time.Minute).Format(time.RFC3339), "spec", "expiresAt")
+
+	svc := newTTLService(expired)
+	// Seed the owner's marker (claim() sets ownerRef alice@example.com).
+	if err := svc.createOwnerMarker(context.Background(), "alice@example.com"); err != nil {
+		t.Fatalf("seed marker: %v", err)
+	}
+
+	ctrl := NewTTLController(svc, time.Minute)
+	ctrl.now = func() time.Time { return now }
+	if _, err := ctrl.reconcileOnce(context.Background()); err != nil {
+		t.Fatalf("reconcileOnce: %v", err)
+	}
+
+	markers, err := svc.listOwnerMarkers(context.Background())
+	if err != nil {
+		t.Fatalf("listOwnerMarkers: %v", err)
+	}
+	if len(markers) != 0 {
+		t.Fatalf("marker should be released after TTL reap, %d left", len(markers))
 	}
 }

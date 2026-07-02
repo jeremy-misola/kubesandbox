@@ -129,6 +129,29 @@ config:
   # TTL cleanup interval in minutes (reserved for the G3 TTL loop)
   ttlCleanupInterval: "1"
 
+# Hot warm-pool (docs/10): keep N pre-provisioned sandboxes RUNNING so a
+# create request is a metadata-only assignment (sub-15s) instead of a cold
+# build (10+ min). Empty pool => requests queue (202 + /api/queue/events).
+pool:
+  enabled: true
+  # Hot, unclaimed sandboxes to keep Ready (sign-off: ~2-3 vs ~5/hour peak,
+  # idle budget <=10).
+  targetWarm: 2
+  # Concurrent-session ceiling: warm + live claims never exceed this.
+  maxTotal: 60
+  # Unclaimed members older than this are recycled, never handed out.
+  maxWarmAgeHours: 24
+  # Pool manager periodic reconcile (safety net behind the claim watch).
+  resyncSeconds: 30
+
+# vcluster control-plane shape (patched into the composition's Release values).
+# Burstable on purpose: the API server is CPU-hungry only during boot; the old
+# flat 200m limit inflated cold boot ~6x (docs/09) and throttled pool refill.
+vcluster:
+  controlPlane:
+    cpuRequest: 200m
+    cpuLimit: 2000m
+
 # RBAC configuration
 rbac:
   create: true

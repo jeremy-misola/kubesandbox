@@ -29,4 +29,11 @@ rules:
       - kubesandboxsessions
       - kubesandboxsessions/status
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Per-owner marker ConfigMaps (hot-pool Phase D): the one-sandbox-per-user
+  # guarantee is an atomic ConfigMap create (name derived from the owner) in
+  # this namespace only. Narrow grant, same namespace as the claims.
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
 {{- end }}

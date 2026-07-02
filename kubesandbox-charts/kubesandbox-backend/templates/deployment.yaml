@@ -61,6 +61,17 @@ spec:
               value: {{ .Values.config.userIdHeader | quote }}
             - name: TTL_CLEANUP_INTERVAL
               value: {{ .Values.config.ttlCleanupInterval | quote }}
+            # --- Hot warm-pool (docs/10) ---
+            - name: POOL_ENABLED
+              value: {{ .Values.pool.enabled | quote }}
+            - name: POOL_TARGET_WARM
+              value: {{ .Values.pool.targetWarm | quote }}
+            - name: POOL_MAX_TOTAL
+              value: {{ .Values.pool.maxTotal | quote }}
+            - name: POOL_MAX_WARM_AGE_HOURS
+              value: {{ .Values.pool.maxWarmAgeHours | quote }}
+            - name: POOL_RESYNC_SECONDS
+              value: {{ .Values.pool.resyncSeconds | quote }}
             {{- if .Values.sessionAuth.enabled }}
             # --- G2 Option B: backend-owned session auth ---
             - name: OIDC_ISSUER

@@ -1,9 +1,211 @@
-# KubeSandbox Backend — Changelog
+# KubeSandbox — Changelog
 
-Historical revision log for the backend + auth build-out. This is a record of
-*how* the current state (documented in `docs/04-backend-handoff.md`) was
+Historical revision log for the backend, auth, and frontend build-out. This is
+a record of *how* the current state (documented in
+`docs/04-backend-handoff.md` and `docs/06-frontend-architecture.md`) was
 reached — not itself required reading to understand where the project is
 today. Newest first.
+
+---
+
+## rev 20 — 2026-07-02 — Hot warm-pool: sub-second assignment instead of cold builds
+
+Implements docs/10 (design: docs/11). `POST /api/sessions` now hands over a
+pre-provisioned, already-Ready sandbox by mutating its claim (owner, pool
+label, `spec.expiresAt = now + ttl`) under optimistic concurrency — measured
+sub-second on prod-k3s vs the former 10+ minute cold build. A background
+`PoolManager` (watch-driven, level-based) keeps 2 hot unclaimed members
+(`s-pool-<rand>`, label `kubesandbox.com/pool: available`) within the 60
+concurrent ceiling, admits queued requests FIFO, recycles members older than
+24 h, and GCs orphaned markers. Empty pool → 202 + SSE progress on
+`/api/queue/events`; never a synchronous cold build. One-per-user moved from
+the owner-derived claim name to an atomically-created per-owner marker
+ConfigMap (`sbxowner-{hash}`), released on delete/TTL-reap. Profiles removed
+(single sandbox type, per sign-off). TTL now starts at assignment
+(`spec.expiresAt` added to the XRD, round-tripped to `status.expiresAt`;
+sweep prefers it and skips unclaimed members).
+
+Cold-path gate (docs/08 §6) closed with a measured breakdown of one live
+provision (9 m 33 s end-to-end): ~4 m 10 s vcluster boot at the old 200m CPU
+limit (fixed: burstable 200m/2000m), 2 m 00 s kubelet mount-retry backoff on
+the kubeconfig Secret (residual), 3 m 16 s provider-kubernetes poll lag on
+the shell pod (fixed: `watch: true`). Orchestration itself is ~10 s. Expected
+refill after fixes: ~2–4 min. All test resources torn down; unit tests incl.
+concurrency (-race) pass. Not yet deployed — see docs/11 §6 deploy checklist.
+
+## rev 19 — 2026-07-02 — Embedded terminal: ttyd now runs inside the SPA
+
+The terminal no longer hands off to a bare ttyd tab — it renders inside the
+site, themed to match. The constraint (docs/06 §4.4): `/s/{id}` is guarded by
+the backend's own OIDC flow, and Authentik's login page refuses to be framed.
+So the SPA **probes** the terminal URL with `fetch(…, { redirect: "manual" })`
+— 200 means the session cookie is warm and the iframe embeds immediately;
+`opaqueredirect` means login is needed, which runs in a small popup window
+(top-level context, so frame-blocking doesn't apply).
+
+New `TerminalFrame` component:
+- **Themed ttyd** — ttyd merges URL query params into its xterm client
+  options, so the iframe URL carries `fontSize`, `fontFamily` (JetBrains
+  Mono), and a full xterm `theme` JSON derived from the site palette
+  (background/cursor/selection + all 16 ANSI colors). No ttyd deployment
+  change needed.
+- **Boot-sequence overlay** — `$ kubesandbox attach {id}` … staggered in via
+  anime.js over faint CRT scanlines, fades to reveal the live pty; reduced
+  motion skips straight through.
+- Toolbar in the `TerminalChrome` strip: reconnect, open-in-new-tab,
+  fullscreen; "connected" pulse when live.
+- Cross-origin deployments (`VITE_PUBLIC_BASE_URL` ≠ SPA origin) can't be
+  probed (CORS) or embedded — they keep the old new-tab handoff.
+
+Two auth bugs found and fixed while iterating (both mine, not ttyd's):
+1. **Chrome `invalid_state` — the SPA sabotaged its own login.** Every
+   unauthenticated GET to `/s/{id}/` makes the backend start a fresh OIDC
+   flow and rotate the state cookie. The original 3 s fallback poll kept
+   doing exactly that while the popup's login was mid-flight, so the popup
+   returned to `/oauth2/callback` with an already-rotated state. Fixed: while
+   a popup is open, the SPA only reads `popup.location` (never touches the
+   server — throws while the popup is on Authentik, readable again once it
+   lands back on `/s/{id}/`); only that completion signal triggers a single
+   probe, closes the popup, and boots the frame.
+2. **Firefox stuck on "authorization required" though logged in.** The
+   backend 301s `/s/{id}` → `/s/{id}/`, and under `redirect: "manual"` a
+   slash-redirect is indistinguishable from the auth redirect — the probe
+   read "needs auth" forever. The same redirect also dropped the theme query
+   string. Fixed: `terminalUrl()` emits the canonical trailing-slash URL.
+
+Also: `/terminal/:id` is now the embedded terminal page (session status
+strip, live provisioning state); Layout widens to `max-w-7xl` there;
+dashboard cards and the session detail page route to it (detail keeps a
+"new tab ↗" escape hatch). Fully seamless (no popup ever) would require the
+`/s/*` ext-authz to accept the session the SPA already holds — noted as a
+possible backend follow-up. `tsc --noEmit` + `vite build` clean.
+
+Files:
+- `frontend/src/components/TerminalFrame.tsx` — new: probe, popup watch,
+  boot overlay, toolbar.
+- `frontend/src/config.ts` — `embeddedTerminalUrl()` (ttyd theme/font query),
+  `isTerminalEmbeddable()`, trailing-slash `terminalUrl()`.
+- `frontend/src/pages/TerminalPage.tsx` — embedded view + cross-origin
+  fallback (replaces auto-`window.open` handoff).
+- `frontend/src/pages/SessionDetailPage.tsx`, `frontend/src/components/SessionCard.tsx`
+  — buttons route to `/terminal/:id`.
+- `frontend/src/components/Layout.tsx` — wider main column on `/terminal`.
+- `frontend/src/index.css` — CRT scanlines, `:fullscreen` styles.
+
+---
+
+## rev 18 — 2026-07-02 — One sandbox per user, enforced by the API server
+
+Replaced the per-user concurrency cap (default 3) with a hard
+one-sandbox-per-user invariant — and moved enforcement from a racy
+list-then-create check in the backend to the Kubernetes API server itself:
+
+- **Deterministic claim name.** `sessionName(ownerRef)` derives
+  `s-{ownerHash[:16]}` — one owner maps to exactly one claim name, so a
+  second create fails `AlreadyExists` atomically. No TOCTOU window, no
+  quota bookkeeping. Random `mintName()` is gone.
+- A claim still tearing down (`deletionTimestamp` set) occupies the name, so
+  re-creation is blocked until cleanup finishes — surfaced honestly in the
+  API error message.
+- `POST /api/sessions` now returns **409 `session_exists`** ("you already
+  have a sandbox (or one is still being cleaned up); delete it before
+  creating a new one") instead of 429 `quota_exceeded`.
+- Removed: `MAX_SESSIONS_PER_USER` env/config, `ErrQuotaExceeded`,
+  `maxPerUser` plumbing through `NewSessionService`.
+- Frontend: `DashboardPage` reworked around the single-sandbox model;
+  `CreateSessionDialog` copy updated.
+
+Chart bumped `0.1.12 → 0.1.13`. Docs 01/03/04/06/07 + READMEs updated to
+match. `go build`/`go test` and `tsc`/`vite build` clean.
+
+Files: `backend/internal/kubernetes/sessions.go`,
+`backend/internal/api/handlers/sessions.go`,
+`backend/internal/config/config.go`, `backend/cmd/server/main.go`,
+`frontend/src/pages/DashboardPage.tsx`,
+`frontend/src/components/CreateSessionDialog.tsx`,
+`kubesandbox-charts/kubesandbox-backend/{Chart.yaml,templates/deployment.yaml,values.yaml}`,
+docs + READMEs.
+
+---
+
+## rev 17 — 2026-07-01 — Optimistic deletion that survives refetch races
+
+**Deleted sandboxes stopped resurrecting.** The backend deletes
+asynchronously — `DELETE /sessions/:id` returns before the claim is gone —
+so a list refetch racing the delete could re-include the session and bring
+the just-deleted card back. Fixed with a module-level `pendingDeletes` store
+(subscribed via `useSyncExternalStore`): optimistically deleted ids are
+hidden from every list render until the server stops returning them, and
+rolled back into view if the delete fails (design-principles §2 Optimistic
+UI). `SessionCard` wires its delete flow through it.
+
+Also in this pass: a "creation loading state" experiment (`e6fdbc6`) was
+reverted wholesale the same evening (`c4d27bd`) — net zero, recorded here so
+the history reads honestly.
+
+Files: `frontend/src/hooks/useSessions.ts`,
+`frontend/src/components/SessionCard.tsx`.
+
+---
+
+## rev 16 — 2026-07-01 — G5 visual redesign: "Cloud-Native Terminal"
+
+Full visual identity pass over the SPA, replacing the scaffold-default look.
+Design references now live in-repo and drove the implementation:
+`frontend/references/{design-principles,shadcn,animejs,frontend-design}.md`
+(the stale 3,800-line `.github/agents/design-principles.md` was deleted in
+favor of these). `animejs@4` added as the animation dependency.
+
+The system, dark-only:
+- **Tokens** — Ink `hsl(170 24% 4%)` background, Carbon card surface,
+  Seafoam `hsl(163 70% 48%)` primary, Signal cyan accent, Mist foreground;
+  Space Grotesk display / IBM Plex Sans body / JetBrains Mono utility.
+- **Signature** — the aurora: two blurred radial blobs drifting on 26 s/34 s
+  cycles behind a blueprint grid that fades toward the bottom.
+- **Motif** — "session = terminal window": a shared `TerminalChrome`
+  (traffic dots + mono title strip) frames session cards, the detail page,
+  and the landing hero.
+- Micro-detail: breathing status dots while provisioning, blinking block
+  cursors, shimmer skeletons, glow-edged buttons, themed TTL slider, tinted
+  slim scrollbars; anime.js staggered reveals on dashboard/detail;
+  `prefers-reduced-motion` kills all decorative motion.
+- **Signed-in landing + navbar** (`d5cb717`): authenticated visitors get a
+  dashboard-oriented landing instead of the marketing hero; nav shows
+  `~/dashboard`, identity chip, sign-out.
+- Cleanup pass (`379dbef`) removed leftover marketing clutter from
+  Landing/Dashboard.
+
+Touched every page and component (17 files, ~1,100 lines);
+`tsc --noEmit` + `vite build` clean.
+
+---
+
+## rev 15 — 2026-07-01 — Session phase vocabulary + per-session HTTPRoute name collision fix
+
+Two unrelated correctness fixes:
+
+1. **`StatusBadge` now speaks the pipeline's exact phase vocabulary** —
+   `Pending` / `Provisioning` / `Ready` / `Error` / `Unknown`, as emitted by
+   `kubesandbox-session-composition.yaml` and confirmed live (docs/07 §3.4)
+   — replacing substring heuristics (`includes("fail")`,
+   `includes("terminat")`…). Deletion never surfaces as a phase (the claim
+   just disappears), so the dead "Terminating" branch is gone; unrecognized
+   future phases render verbatim with in-progress styling rather than being
+   hidden. docs/06 + docs/07 updated to match.
+
+2. **Concurrent sessions were fighting over one HTTPRoute.** The composition
+   patched the *Object* name per-session but not the inner HTTPRoute
+   manifest's name — so every session's Object managed a single HTTPRoute
+   named `shell` in the shared `kubesandbox` namespace, and with 2+
+   concurrent sessions their reconcile loops overwrote each other's
+   path/backendRef in a tug-of-war: `/s/{id}` intermittently fell through to
+   the frontend SPA (404). Fixed with a `CombineFromComposite` patch naming
+   the manifest `shell-{claim-ns}-{claim-name}`. Chart bumped
+   `0.1.11 → 0.1.12`.
+
+Files: `frontend/src/components/StatusBadge.tsx`,
+`kubesandbox-charts/kubesandbox-backend/templates/kubesandbox-session-composition.yaml`,
+`docs/06-frontend-architecture.md`, `docs/07-frontend-implementation-plan.md`.
 
 ---
 

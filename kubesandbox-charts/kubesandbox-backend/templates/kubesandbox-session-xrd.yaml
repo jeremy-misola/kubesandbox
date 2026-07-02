@@ -26,24 +26,26 @@ spec:
           properties:
             spec:
               type: object
-              required:
-                - tenantRef
-                - ownerRef
-                - profile
               properties:
+                # tenantRef/ownerRef are OPTIONAL (hot-pool design): warm pool
+                # members are provisioned before an owner exists and carry empty
+                # owner/tenant until assignment mutates them. The backend is the
+                # only writer and always sets both at assignment.
                 tenantRef:
                   type: string
-                  description: Logical tenant that owns the session.
+                  default: ""
+                  description: Logical tenant that owns the session. Empty for unclaimed warm-pool members.
                 ownerRef:
                   type: string
-                  description: User identifier from Authentik or the application database.
-                profile:
+                  default: ""
+                  description: User identifier from Authentik or the application database. Empty for unclaimed warm-pool members.
+                expiresAt:
                   type: string
-                  description: Session profile that controls the default resource shape.
-                  enum:
-                    - starter
-                    - standard
-                    - advanced
+                  format: date-time
+                  description: >-
+                    Absolute expiry set by the backend at assignment (TTL starts
+                    at hand-over). Authoritative over ttlMinutes when present;
+                    surfaced to status.expiresAt by the composition.
                 ttlMinutes:
                   type: integer
                   minimum: 15

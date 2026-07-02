@@ -36,11 +36,12 @@ spec:
                       name: placeholder
                       labels:
                         kubesandbox.com/managed: "true"
-                        kubesandbox.com/profile: placeholder
                       # owner/tenant are stored as ANNOTATIONS, not labels:
                       # identifiers may be emails (contain '@') or other chars
                       # that are invalid in label values. Annotations have no
-                      # such charset restriction.
+                      # such charset restriction. For hot-pool members these are
+                      # empty at warm time and re-patched on reconcile after
+                      # assignment mutates the claim's ownerRef/tenantRef.
                       annotations:
                         kubesandbox.com/tenant-ref: placeholder
                         kubesandbox.com/owner-ref: placeholder
@@ -69,9 +70,21 @@ spec:
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.ownerRef
                 toFieldPath: spec.forProvider.manifest.metadata.annotations[kubesandbox.com/owner-ref]
+              # expiresAt round-trip (hot-pool Phase A): the backend sets
+              # spec.expiresAt at assignment (TTL starts at hand-over, not at
+              # creation). It is stamped onto the session namespace as an
+              # annotation and read back into status.expiresAt so the claim
+              # status carries the authoritative expiry.
               - type: FromCompositeFieldPath
-                fromFieldPath: spec.profile
-                toFieldPath: spec.forProvider.manifest.metadata.labels[kubesandbox.com/profile]
+                fromFieldPath: spec.expiresAt
+                toFieldPath: spec.forProvider.manifest.metadata.annotations[kubesandbox.com/expires-at]
+                policy:
+                  fromFieldPath: Optional
+              - type: ToCompositeFieldPath
+                fromFieldPath: status.atProvider.manifest.metadata.annotations[kubesandbox.com/expires-at]
+                toFieldPath: status.expiresAt
+                policy:
+                  fromFieldPath: Optional
               - type: ToCompositeFieldPath
                 fromFieldPath: metadata.name
                 toFieldPath: status.sessionNamespace
@@ -144,9 +157,17 @@ spec:
                   values:
                     controlPlane:
                       statefulSet:
+                        # Burstable shape (hot-pool Phase A): the control plane is
+                        # CPU-hungry only during boot. The 200m limit used here
+                        # previously inflated cold boot ~6x (196s vs 33s of
+                        # control-plane boot — see docs/09). A generous limit with a
+                        # modest request keeps steady-state cheap while letting boot
+                        # (and therefore pool refill) run fast.
                         resources:
+                          requests:
+                            cpu: {{ .Values.vcluster.controlPlane.cpuRequest | default "200m" }}
                           limits:
-                            cpu: 200m
+                            cpu: {{ .Values.vcluster.controlPlane.cpuLimit | default "2000m" }}
                         persistence:
                           volumeClaim:
                             enabled: false
@@ -291,6 +312,14 @@ spec:
               spec:
                 providerConfigRef:
                   name: kubernetes-incluster
+                # Watch the pod instead of polling it (cold-path measurement,
+                # docs/11 §3): with watch:false, provider-kubernetes only
+                # re-observes the pod on its poll interval (~10 min), so
+                # status.workspaceReady — and therefore pool-member
+                # availability — lagged the pod's actual Running state by up
+                # to 10 minutes. This was a dominant term in the production
+                # "10+ minute" provisioning total.
+                watch: true
                 forProvider:
                   manifest:
                     apiVersion: v1

@@ -33,6 +33,21 @@ type Config struct {
 	// TTLCleanupInterval is reserved for the G3 TTL loop.
 	TTLCleanupInterval time.Duration
 
+	// --- Hot warm-pool (docs/10) ---
+
+	// PoolEnabled turns the hot pool + assignment path on. When false the
+	// backend falls back to legacy direct creates (cold build on request).
+	PoolEnabled bool
+	// PoolTargetWarm is how many hot, unclaimed sandboxes to keep Ready.
+	PoolTargetWarm int
+	// PoolMaxTotal is the concurrent-session ceiling (warm + live).
+	PoolMaxTotal int
+	// PoolMaxWarmAge is how old an unclaimed member may get before it is
+	// recycled instead of handed out.
+	PoolMaxWarmAge time.Duration
+	// PoolResync is the pool manager's periodic reconcile interval.
+	PoolResync time.Duration
+
 	// --- G2 Option B: backend-owned session auth ---
 
 	// OIDCIssuer is the Authentik provider issuer URL
@@ -121,6 +136,12 @@ func Load() Config {
 		UserIDHeader:     getenv("USER_ID_HEADER", "X-User-Id"),
 
 		TTLCleanupInterval: time.Duration(getenvInt("TTL_CLEANUP_INTERVAL", 1)) * time.Minute,
+
+		PoolEnabled:    getenv("POOL_ENABLED", "true") == "true",
+		PoolTargetWarm: getenvInt("POOL_TARGET_WARM", 2),
+		PoolMaxTotal:   getenvInt("POOL_MAX_TOTAL", 60),
+		PoolMaxWarmAge: time.Duration(getenvInt("POOL_MAX_WARM_AGE_HOURS", 24)) * time.Hour,
+		PoolResync:     time.Duration(getenvInt("POOL_RESYNC_SECONDS", 30)) * time.Second,
 
 		OIDCIssuer:        oidcIssuer,
 		OIDCClientID:      getenv("OIDC_CLIENT_ID", ""),

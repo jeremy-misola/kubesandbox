@@ -69,6 +69,12 @@ func (t *TTLController) reconcileOnce(ctx context.Context) (int, error) {
 		if c.GetDeletionTimestamp() != nil {
 			continue
 		}
+		// Unclaimed warm-pool members have no session lifecycle yet — their TTL
+		// starts at ASSIGNMENT. The pool manager owns their lifecycle
+		// (freshness recycling); reaping them here would drain the pool.
+		if poolState(&c) == poolAvailable {
+			continue
+		}
 		exp, ok := claimExpiry(&c)
 		if !ok || t.now().Before(exp) {
 			continue
@@ -80,14 +86,29 @@ func (t *TTLController) reconcileOnce(ctx context.Context) (int, error) {
 			continue
 		}
 		deleted++
+		// Release the owner's one-per-user marker so they can create again.
+		if owner := specOwner(&c); owner != "" {
+			if err := t.svc.deleteOwnerMarker(ctx, owner); err != nil {
+				log.Printf("ttl: marker cleanup for %s failed: %v", c.GetName(), err)
+			}
+		}
 	}
 	return deleted, nil
 }
 
-// claimExpiry computes when a claim expires. It prefers the controller-published
-// status.expiresAt, falling back to creationTimestamp + spec.ttlMinutes so TTL is
-// enforced even though nothing currently populates status.expiresAt.
+// claimExpiry computes when a claim expires, in preference order:
+//
+//  1. spec.expiresAt — set by the backend at ASSIGNMENT (hand-over), which is
+//     when the lifecycle clock starts for pool members. Authoritative.
+//  2. status.expiresAt — the composition's echo of (1); may lag a reconcile.
+//  3. creationTimestamp + spec.ttlMinutes — legacy fallback for claims created
+//     before spec.expiresAt existed.
 func claimExpiry(obj *unstructured.Unstructured) (time.Time, bool) {
+	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "expiresAt"); ok && v != "" {
+		if ts, err := time.Parse(time.RFC3339, v); err == nil {
+			return ts.UTC(), true
+		}
+	}
 	if v, ok, _ := unstructured.NestedString(obj.Object, "status", "expiresAt"); ok && v != "" {
 		if ts, err := time.Parse(time.RFC3339, v); err == nil {
 			return ts.UTC(), true
