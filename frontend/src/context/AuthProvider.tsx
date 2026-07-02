@@ -72,10 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return cleanup;
     }
 
-    // Access tokens live in memory only (see lib/auth.ts), so a page reload
-    // always starts with no user here. Before treating that as "signed out",
-    // try a silent renew against the Authentik SSO session — if the user is
-    // still logged in there, this resolves without any visible redirect.
+    // The OIDC user persists in sessionStorage (see lib/auth.ts), so a page
+    // reload normally finds it via getUser(). If it's missing or the access
+    // token has expired, signinSilent() renews via the refresh token — a
+    // direct token-endpoint fetch, which works cross-site (iframe renew
+    // does not; that's what broke refresh before).
     (async () => {
       let u = await userManager.getUser();
       if (!u || u.expired) {

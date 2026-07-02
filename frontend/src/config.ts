@@ -33,7 +33,11 @@ export const config = {
     // Authentik's OIDC endpoints are shared, not per-provider — but
     // oidc-client-ts discovers them from the issuer's
     // /.well-known/openid-configuration, which Authentik serves correctly.
-    scope: "openid email profile",
+    // `offline_access` requests a refresh token so renewal (and page
+    // refresh) works via the token endpoint instead of iframe silent renew,
+    // which fails cross-site (see lib/auth.ts). Requires the offline_access
+    // scope mapping to be enabled on the Authentik provider.
+    scope: "openid email profile offline_access",
   },
 } as const;
 

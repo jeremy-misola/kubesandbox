@@ -1,7 +1,6 @@
 import {
   UserManager,
   WebStorageStateStore,
-  InMemoryWebStorage,
   type User,
 } from "oidc-client-ts";
 
@@ -9,9 +8,19 @@ import { config } from "@/config";
 
 // Authorization Code + PKCE against Authentik (public client, no secret).
 //
-// Token posture (see docs/06 §4.1/§5): the access token is kept in memory via
-// InMemoryWebStorage, NOT localStorage — a page reload re-runs silent renew
-// against the Authentik SSO session rather than persisting tokens in the browser.
+// Token posture (revised from docs/06 §4.1/§5): the original design kept
+// tokens in memory only and relied on iframe silent renew against the
+// Authentik SSO session. That is structurally broken cross-site — the app
+// (kubesandbox.com) and Authentik (auth.jeremymr.dev) are different sites, so
+// the SameSite=Lax session cookie is never sent inside the hidden iframe and
+// prompt=none always returns login_required (every page refresh logged the
+// user out). Instead:
+//
+//   - The OIDC user (incl. refresh token) is stored in sessionStorage:
+//     per-tab, cleared when the tab closes, never in localStorage.
+//   - `offline_access` scope requests a refresh token, so renewal happens via
+//     a direct fetch to the token endpoint — no iframe, no third-party
+//     cookies involved.
 export const userManager = new UserManager({
   authority: config.oidc.issuer,
   client_id: config.oidc.clientId,
@@ -20,8 +29,8 @@ export const userManager = new UserManager({
   scope: config.oidc.scope,
   post_logout_redirect_uri: window.location.origin,
   automaticSilentRenew: true,
-  // Keep tokens out of persistent storage.
-  userStore: new WebStorageStateStore({ store: new InMemoryWebStorage() }),
+  // Per-tab persistence so a page refresh keeps the session (see above).
+  userStore: new WebStorageStateStore({ store: window.sessionStorage }),
   // PKCE state (short-lived) may live in sessionStorage across the redirect.
   stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
 });
