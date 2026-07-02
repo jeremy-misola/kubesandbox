@@ -25,6 +25,17 @@ Symptoms fixed:
    Authentik round trip + booting the entire SPA bundle inside the hidden
    iframe at `/auth/callback` before the failure relayed back and `loading`
    flipped false.
+3. **Explicit sign-in completed, then bounced back to the landing page** —
+   separate bug from the cross-site issue. `AuthProvider`'s effect registered
+   its `userLoaded`/`userUnloaded`/`accessTokenExpired` listeners *after* an
+   early `return` taken on the `/auth/callback` route (despite a comment
+   claiming otherwise), so the `userLoaded` event fired by `CallbackPage`'s
+   `completeLogin()` was never observed. React state stayed signed-out
+   (`isAuthenticated: false`) even though the login had succeeded, and
+   `ProtectedRoute` redirected `/dashboard` → `/`. Fixed by registering the
+   listeners unconditionally at the top of the effect, before any early
+   return; the callback-route early return itself is kept (it prevents a
+   redundant `signinSilent()` racing `completeLogin()`).
 
 New token posture (revises docs/06 §4.1/§5):
 - **`offline_access` scope + refresh tokens.** Renewal is now a direct fetch
@@ -57,8 +68,9 @@ Files:
 - `kubesandbox/frontend/src/lib/auth.ts` — `sessionStorage` userStore;
   renew-only-if-user-exists in `getAccessToken()`; dropped unused `getUser()`.
 - `kubesandbox/frontend/src/config.ts` — scope += `offline_access`.
-- `kubesandbox/frontend/src/context/AuthProvider.tsx` — skip silent sign-in
-  when no stored user; removed iframe guard.
+- `kubesandbox/frontend/src/context/AuthProvider.tsx` — event listeners
+  registered before the callback-route early return (fixes symptom 3); skip
+  silent sign-in when no stored user; removed iframe guard.
 - `kubesandbox/frontend/src/pages/CallbackPage.tsx` — removed iframe relay branch.
 - `GitOps-Homelab/operators-helm/operators/kubesandbox-frontend/pre-resources/templates/kubesandbox-frontend-auth.yaml`
   — explicit `property_mappings` incl. `offline_access`.

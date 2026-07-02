@@ -43,7 +43,7 @@ boxes as you go.
 |---|---|---|
 | Data client + Zod boundary | `src/lib/api.ts`, `src/lib/schemas.ts` | Complete. Bearer on every call, error mapping, `Session`/`CreateSessionRequest` schemas match `models.Session`. |
 | SSE fetch-stream | `src/lib/api.ts` (`streamSessionEvents`) | Complete. Manual `event:`/`data:` frame parsing, heartbeat-tolerant, bearer-attached. |
-| OIDC (PKCE, in-memory) | `src/lib/auth.ts`, `src/context/AuthProvider.tsx`, `src/hooks/useAuth.ts`, `src/pages/CallbackPage.tsx` | Complete. `oidc-client-ts` UserManager, `InMemoryWebStorage`, `sub` exposed. Silent renew on load was fixed this pass (see note below) — previously `AuthProvider` only called `getUser()` on mount and never attempted `signinSilent()`, so every page reload showed "logged out" instantly, before any SSO check happened; `ProtectedRoute` would bounce to `/` before a renew could complete. Fixed by (a) `AuthProvider`'s mount effect now calls `signinSilent()` when no in-memory user is found (skipped when the document is itself the hidden renew iframe), and (b) `CallbackPage` now detects that iframe case (`window.self !== window.top`) and calls `userManager.signinSilentCallback()` to relay the response to the parent instead of running the top-level redirect-callback/navigate flow. |
+| OIDC (PKCE, sessionStorage + refresh tokens) | `src/lib/auth.ts`, `src/context/AuthProvider.tsx`, `src/hooks/useAuth.ts`, `src/pages/CallbackPage.tsx` | Complete. `oidc-client-ts` UserManager, `sub` exposed. **Posture revised in rev 14** (see arch §4.1): the original in-memory store + iframe silent renew was structurally broken cross-site (`kubesandbox.com` vs `auth.jeremymr.dev` — the `SameSite=Lax` Authentik cookie never reaches the hidden iframe), so every refresh logged the user out and the landing "Sign in" button sat disabled ~5 s waiting for the doomed renew. Now: OIDC user in `sessionStorage`, `offline_access` scope, renewal via refresh-token fetch to the token endpoint; `signinSilent()` only attempted when a stored user exists; iframe-relay code removed from `CallbackPage`/`AuthProvider`. |
 | Server-state hooks | `src/hooks/useSessions.ts`, `src/hooks/useSessionEvents.ts` | Complete. TanStack Query keys, optimistic delete, SSE→cache, polling fallback. |
 | Runtime config shim | `src/config.ts`, `index.html`, `docker-entrypoint.sh`, `.env.example` | Complete. `window.__ENV` → `import.meta.env` → default resolution. |
 | Routes + pages | `src/App.tsx`, `src/pages/*` | Present, typecheck clean; **unverified against live backend.** |
@@ -55,9 +55,9 @@ boxes as you go.
 | Gap | Where | Phase |
 |---|---|---|
 | SPA tokens 401 on `/api` — **config now wired** (multi-issuer JWT trust + frontend signing key, rev 13), but rollout isn't confirmed live: the frontend Authentik provider's JWKS fix needs the pre-resources Workspace to re-sync and the 300s Envoy JWKS cache to clear | `GitOps-Homelab` `values-prd.yaml`, `kubesandbox-frontend-auth.yaml`; chart template already supports it (`securitypolicy-api.yaml`) | **0** |
-| Auth-bootstrap silent renew didn't actually run on page load (every refresh looked logged out) | `AuthProvider.tsx`, `CallbackPage.tsx` | **Fixed this pass** — see §1.1 note; still needs live verification against Authentik (Phase 2) |
-| No live verification of login / list / create / SSE / delete / terminal | whole app | 1–4 |
-| Phase enum not confirmed against a real claim (badge colors guessed) | `StatusBadge.tsx`; arch §8 item 6 | 3 |
+| Session lost on every page refresh + landing button disabled ~5 s (cross-site iframe silent renew can never succeed) | `lib/auth.ts`, `config.ts`, `AuthProvider.tsx`, `CallbackPage.tsx`; Authentik provider `property_mappings` (`kubesandbox-frontend-auth.yaml`) | **Fixed in rev 14, verified live 2026-07-01** — refresh keeps the session (§5 item 2.2) |
+| No live verification of login / list / create / SSE / delete / terminal | whole app | 1–4 — **login/create/SSE verified live 2026-07-01** (§5–§6); delete/terminal/edge cases still open |
+| ~~Phase enum not confirmed against a real claim (badge colors guessed)~~ | `StatusBadge.tsx`; arch §8 item 6 | **Done 2026-07-01** — vocabulary traced from the composition + happy path seen live; `tone()` now matches the exact enum (§6 item 3.4) |
 | Toasts absent — errors are inline-only; `5xx` retry-toast pattern unimplemented | design-principles §3 | 5 |
 | No global error boundary; `NotFoundPage` minimal | `src/App.tsx` | 5 |
 | Accessibility + mobile pass not done (modal focus-trap/Esc, keyboard, viewport) | `CreateSessionDialog`, `Layout` | 5 |
@@ -175,25 +175,24 @@ Get a fast inner loop before touching prod.
 
 ## 5. Phase 2 — Auth flow, end to end
 
-- [ ] **2.1 Sign-in.** From `/`, "Sign in" → Authentik → `/auth/callback`
+- [x] **2.1 Sign-in.** From `/`, "Sign in" → Authentik → `/auth/callback`
   completes PKCE → lands on `/dashboard`. Confirm `CallbackPage`'s StrictMode
-  double-run guard holds (no duplicate token exchange).
-- [ ] **2.2 In-memory posture.** Confirm no tokens land in `localStorage`;
-  reload triggers silent renew against the Authentik SSO session. **Code fixed
-  this pass** — `AuthProvider` previously never attempted `signinSilent()` on
-  load (it only read the now-empty in-memory store and let `ProtectedRoute`
-  redirect before any renew could happen); `CallbackPage` didn't handle being
-  loaded inside the hidden renew iframe either. Both are fixed (§1.1). Still
-  needs a live browser check against Authentik once P2's rollout (Phase 0) is
-  confirmed.
+  double-run guard holds (no duplicate token exchange). **Verified live
+  2026-07-01.**
+- [x] **2.2 Token posture (rev 14).** Page reload keeps the session with no
+  redirect — **verified live 2026-07-01** (implies the refresh token is being
+  issued, i.e. the `offline_access` Workspace change is synced). Remaining
+  quick checks if desired: devtools confirm nothing in `localStorage`, and
+  signed-out `/` shows an immediately-clickable "Sign in" button.
 - [ ] **2.3 `returnTo`.** Deep-link to `/dashboard/:id` while logged out →
   bounce to login → return to the intended route after callback.
 - [ ] **2.4 Guarded routes.** `ProtectedRoute` redirects unauthenticated users;
   `Layout` shows identity + working "Sign out".
 - [ ] **2.5 401 handling.** Force an expired/invalid token and confirm the app
-  triggers silent renew / re-auth rather than a dead screen (arch §4.5).
+  renews via refresh token / re-auths rather than a dead screen (arch §4.5).
 
-**Acceptance:** full login/logout/deep-link cycle works; token never persisted.
+**Acceptance:** full login/logout/deep-link cycle works; refresh keeps the
+session; nothing persisted beyond the tab (`sessionStorage` only).
 
 ---
 
@@ -201,18 +200,23 @@ Get a fast inner loop before touching prod.
 
 - [ ] **3.1 Empty state.** New user sees the "Create your first sandbox" CTA
   (design-principles §6). Already implemented — verify live.
-- [ ] **3.2 Create.** `CreateSessionDialog` → `POST /api/sessions` (profile +
-  TTL) → `201` → optimistic list update, dialog closes.
-- [ ] **3.3 Live provisioning (the headline feature).** New session streams
-  `Pending` → provisioning → `Ready` via SSE **without refresh**
-  (`useSessionEvents` → cache). Confirm the 25s heartbeat keeps the stream open
-  through the ~4–5 min vcluster cold-boot, and the fallback **polls** if the
-  stream drops (arch §4.3).
-- [ ] **3.4 Confirm phase vocabulary (P5).** Read a real claim's `phase` values
-  from the Crossplane `function-auto-ready` pipeline; reconcile
-  `StatusBadge.tone()` (fail/error, terminating, pending) against them. Keep
-  `workspaceReady` as the authoritative "usable" gate; treat `phase` as a label
-  (arch §8 item 6).
+- [x] **3.2 Create.** `CreateSessionDialog` → `POST /api/sessions` (profile +
+  TTL) → `201` → optimistic list update, dialog closes. **Verified live
+  2026-07-01.**
+- [x] **3.3 Live provisioning (the headline feature).** New session streams
+  `Pending` → `Provisioning` → `Ready` via SSE **without refresh**
+  (`useSessionEvents` → cache) — **verified live 2026-07-01**, including the
+  heartbeat holding the stream through cold-boot. Not yet exercised: the
+  polling fallback when the stream drops (arch §4.3).
+- [x] **3.4 Confirm phase vocabulary (P5).** **Done 2026-07-01.** The full
+  vocabulary, traced from the composition's phase map
+  (`kubesandbox-session-composition.yaml`: pod `Pending`→`Provisioning`,
+  `Running`/`Succeeded`→`Ready`, `Failed`→`Error`, `Unknown`→`Unknown`; backend
+  defaults to `Pending` pre-pod): `Pending`, `Provisioning`, `Ready`, `Error`,
+  `Unknown`. Happy path confirmed live. `StatusBadge.tone()` rewritten to
+  match this exact enum (grey for `Unknown`; dead `fail`/`terminat` substring
+  branches removed — deletion never surfaces as a phase). `workspaceReady`
+  remains the authoritative "usable" gate.
 - [ ] **3.5 Provisioning affordance.** Since cold-boot exceeds the 1s+ threshold,
   show phase **+ elapsed time**, not an indefinite spinner (design-principles §2,
   §7). Add elapsed-time display if not present.

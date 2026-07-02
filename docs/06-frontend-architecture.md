@@ -55,7 +55,7 @@ ext-authz. The SPA's job is narrow and well-defined:
 | Data/cache | **TanStack Query** | Server-state cache, retries, background refetch; pairs with SSE for live updates. |
 | Realtime | **fetch-stream SSE reader** (not `EventSource`) | `EventSource` can't set `Authorization` — must stream with a `fetch` + `ReadableStream` client (handoff §4.2). |
 | Validation | **Zod** | Runtime-validate `/api` responses at the boundary; derive TS types from schemas. |
-| Auth | **oidc-client-ts** (Auth Code + PKCE) | Standards-based browser OIDC, PKCE, silent renew; public client, no secret in the browser. |
+| Auth | **oidc-client-ts** (Auth Code + PKCE) | Standards-based browser OIDC, PKCE, refresh-token renewal (§4.1); public client, no secret in the browser. |
 | Routing | **react-router-dom** | Client-side routes, guarded routes, callback handling. |
 | Motion | **anime.js** | Light polish only (status transitions, list enter/leave). |
 
@@ -82,7 +82,7 @@ The SPA owns these client routes. The gateway serves everything under `/`
 | Route | Page | Responsibility |
 |---|---|---|
 | `/` | `LandingPage` | Value prop + "Sign in". Kicks off PKCE via `oidc-client-ts`. If already authenticated, redirect to `/dashboard`. |
-| `/auth/callback` | `CallbackPage` | Handles the `?code=&state=` return, completes token exchange, stores the user in memory, redirects to the intended route. |
+| `/auth/callback` | `CallbackPage` | Handles the `?code=&state=` return, completes token exchange, stores the user (sessionStorage, §4.1), redirects to the intended route. |
 | `/dashboard` | `DashboardPage` | Lists sessions (`GET /api/sessions`), shows the create dialog, per-session status badges, delete. |
 | `/dashboard/:id` | `SessionDetailPage` | Single session, live SSE stream, resource/TTL/profile detail, "Open terminal" when `workspaceReady`. |
 | `/terminal/:id` | `TerminalPage` | Hand-off: top-level navigate (or new tab) to `{VITE_PUBLIC_BASE_URL}/s/{id}`. See §4.4 for why not an iframe. |
@@ -110,11 +110,27 @@ The SPA touches both. They are handled separately.
 ### 4.1 Recommended token strategy for `/api` — SPA PKCE, backend-trusted issuer
 
 **Recommendation:** the SPA runs its **own Authorization Code + PKCE flow**
-against Authentik using the **public `kubesandbox-frontend` client**, holds the
-access/ID token **in memory**, and attaches it as `Authorization: Bearer` to
-every `/api` request and the SSE fetch-stream. To make those tokens acceptable
-to `/api`, **add the frontend provider as a second JWT provider** (issuer +
-JWKS) on `securitypolicy-api.yaml`.
+against Authentik using the **public `kubesandbox-frontend` client**, stores
+the OIDC user (tokens incl. refresh token) in **`sessionStorage`** (per-tab,
+cleared on tab close, never `localStorage`), and attaches the access token as
+`Authorization: Bearer` to every `/api` request and the SSE fetch-stream.
+Renewal uses **refresh tokens** (`offline_access` scope) via a direct
+token-endpoint fetch. To make those tokens acceptable to `/api`, **add the
+frontend provider as a second JWT provider** (issuer + JWKS) on
+`securitypolicy-api.yaml`.
+
+> **Revised posture (rev 14).** The original design held tokens **in memory
+> only** and recovered across page reloads with iframe silent renew
+> (`prompt=none`) against the Authentik SSO session. That is structurally
+> broken here: the SPA (`kubesandbox.com`) and Authentik (`auth.jeremymr.dev`)
+> are **cross-site**, so Authentik's `SameSite=Lax` session cookie is never
+> sent inside the hidden iframe (and Safari/Chrome block third-party cookies
+> regardless) — every silent renew ended in `login_required`, logging the user
+> out on every refresh. `sessionStorage` + refresh tokens keeps the "nothing
+> long-lived in `localStorage`" property while making reloads and renewals
+> work without any cross-site cookie dependency. Requires the
+> `offline_access` scope mapping on the Authentik provider (Terraform
+> Workspace sets `property_mappings` explicitly).
 
 ```mermaid
 flowchart LR
@@ -169,9 +185,10 @@ Keep Envoy's edge OIDC (cookies) on the frontend routes, and add a small
 backend already performs** for `/s/{id}`, and breaks the "stateless backend,
 state in claims" principle the scaling model relies on. The cost (an extra hop
 + a new deployable + session affinity concerns) outweighs the benefit at this
-scale. In-memory tokens + PKCE + short-lived access tokens with silent renew is
-an acceptable, standard SPA security posture. Revisit only if a hard requirement
-lands that tokens must never reach the browser.
+scale. Session-scoped tokens (`sessionStorage`, per-tab) + PKCE + short-lived
+access tokens with refresh-token renewal is an acceptable, standard SPA
+security posture. Revisit only if a hard requirement lands that tokens must
+never reach the browser.
 
 ### 4.3 SSE — fetch-stream, not `EventSource`
 
@@ -249,8 +266,8 @@ Typed client wrapping the endpoints (all Zod-validated at the boundary):
 | `GET` | `/api/sessions/:id/events` | SSE stream (fetch-stream) |
 
 **Error mapping** (mirror the backend): `400 invalid_request` /
-`400 invalid_profile`, `401` (missing/invalid bearer → trigger re-auth /
-silent renew), `404 not_found` (unknown/unowned/malformed id — same code, no
+`400 invalid_profile`, `401` (missing/invalid bearer → refresh-token renew /
+re-auth), `404 not_found` (unknown/unowned/malformed id — same code, no
 existence leak), `429 quota_exceeded` (surface "you've hit your session cap"),
 `5xx` (retry-with-backoff + toast). See design-principles §3/§4 for placement +
 messaging.
@@ -272,8 +289,9 @@ Two state domains, kept separate:
 
 - **Auth state** — `AuthProvider` (React context) wrapping `oidc-client-ts`
   `UserManager`. Exposes `user`, `isAuthenticated`, `login()`, `logout()`,
-  `getAccessToken()` (with silent renew). Access token held **in memory**;
-  avoid persisting tokens to `localStorage`. `ProtectedRoute` reads this.
+  `getAccessToken()` (renews via refresh token when expired). OIDC user stored
+  in **`sessionStorage`** (per-tab; never `localStorage` — see §4.1).
+  `ProtectedRoute` reads this.
 - **Server state** — **TanStack Query**. Query keys: `['sessions']` (list),
   `['session', id]` (detail). Mutations: `createSession`, `deleteSession` with
   optimistic updates + invalidation (design-principles §2 optimistic UI). The
