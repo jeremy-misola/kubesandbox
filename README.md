@@ -23,6 +23,10 @@ KubeSandbox solves this by providing instant, time-limited sandboxes with full K
 
 Each session provisions a dedicated [vcluster](https://www.vcluster.com/) — a lightweight virtual cluster running inside the host cluster. This provides true multi-tenancy where users get full cluster-admin access within their sandbox without affecting others.
 
+### One Sandbox Per User
+
+Each user has at most **one active sandbox** at a time. This is enforced structurally: the session name is derived deterministically from the user's identity, so the Kubernetes API server rejects a duplicate create atomically (no race conditions). To start fresh, delete the current sandbox — recreation is available as soon as cleanup finishes.
+
 ### Web-Based Terminal
 
 Instant access through a browser-based terminal powered by [ttyd](https://github.com/tsl0922/ttyd). No kubectl installation required — just open the workspace and start interacting with your cluster.
@@ -122,8 +126,8 @@ flowchart TB
 └─────────────┘     └──────────────┘     └─────────┘     └─────────┘
 ```
 
-1. User creates a session via the frontend
-2. Backend creates a `KubeSandboxSession` custom resource
+1. User creates their session via the frontend (one per user)
+2. Backend creates a `KubeSandboxSession` custom resource named deterministically from the user's identity — a second create returns `409 Conflict`
 3. Crossplane's composition provisions all resources
 4. Shell pod becomes ready, user accesses workspace
 5. TTL expires, Crossplane tears down everything

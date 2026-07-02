@@ -76,8 +76,8 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
 
   const errorMsg =
     create.error instanceof ApiError
-      ? create.error.code === "quota_exceeded"
-        ? "You've reached your concurrent session limit. Delete one to create another."
+      ? create.error.code === "session_exists"
+        ? "You already have a sandbox (it may still be cleaning up). Delete it or wait a moment before creating a new one."
         : create.error.message
       : create.error
         ? "Could not create session. Please try again."

@@ -33,7 +33,7 @@ shared Envoy Gateway on a per-session path (`kubesandbox.com/s/{id}`).
 | Component | Where | Role | Status |
 |---|---|---|---|
 | **Frontend SPA** | chart `kubesandbox-charts/frontend` | Sign-in (Authentik OIDC), session dashboard, "open terminal." | Scaffold; not yet built (G5). |
-| **Backend service** | Go source `backend/`, chart `kubesandbox-charts/kubesandbox-backend` | Creates/lists/deletes claims (via `client-go` dynamic client), enforces quota + TTL loop, owns the full OIDC/PKCE auth flow for session access, answers ext-authz ownership checks. | **Built and live on prod-k3s (G1 + G2).** |
+| **Backend service** | Go source `backend/`, chart `kubesandbox-charts/kubesandbox-backend` | Creates/lists/deletes claims (via `client-go` dynamic client), enforces the one-sandbox-per-user rule + TTL loop, owns the full OIDC/PKCE auth flow for session access, answers ext-authz ownership checks. | **Built and live on prod-k3s (G1 + G2).** |
 | **XRD / claim** | `crossplane/.../kubesandbox-session-xrd.yaml` | `platform.kubesandbox.com` `KubeSandboxSession` API. | **Built.** |
 | **Composition** | `crossplane/.../kubesandbox-session-composition.yaml` | Fans one claim into 8 managed resources per session. | **Built.** |
 | **Authentik OIDC clients** | `crossplane/.../authentik-oidc-app.yaml`, `kubesandbox-{frontend,backend}-auth.yaml` | OIDC clients for frontend and backend provisioned by Crossplane Terraform Workspaces. | **Backend client built + live.** Frontend client built (waiting for G5). |
@@ -261,7 +261,7 @@ Sessions are **ephemeral and disposable**. Three layers:
 
 - **Backend** — stateless; run 2+ replicas behind the gateway. Re-derives everything from claims. Session cookie is HMAC-signed (no server-side store needed) so any replica can verify it.
 - **Crossplane / controllers** — leader-elected; level-triggered convergence.
-- **Backpressure** — `MAX_SESSIONS_PER_USER` cap (default 3) enforced by the backend; excess requests → 429.
+- **Backpressure** — **one sandbox per user**, enforced atomically by the deterministic per-owner claim name (`s-{sha256(owner)[:16]}`): a second create for the same user fails `AlreadyExists` at the API server → 409. No list-then-create race, no configurable cap.
 - **Crash safety** — kill any process; state is in the claims (etcd). The TTL loop re-starts clean with no loss.
 
 ---

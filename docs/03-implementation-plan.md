@@ -14,7 +14,7 @@
 | Backend identity (G1) | **Trust Envoy-forwarded identity headers** (`X-User-Email` / `X-User-Name` / `X-User-Groups`, optional `X-User-Id`). Edge does OIDC; the backend reads `sub`/email from headers. In-backend OIDC/JWT validation is **deferred to G4**. Defense in depth: lock the gateway→backend path (NetworkPolicy / mTLS). |
 | Kubernetes client | **`client-go` dynamic client** (`unstructured`) for `KubeSandboxSession` claim CRUD in G1 — no codegen needed for the CRD. Graduate to **`controller-runtime`** (informers + leader election) for the G3 TTL controller, reusing the same scheme. |
 | Session URL | **Path-based:** `kubesandbox.com/s/{id}` (single cert, no wildcard). Replaces host-based `{ns}-{name}.kubesandbox.com`. |
-| Session `{id}` | **Opaque random claim name** `s-xxxxxxxx`; public id `= {namespace}-{name}` (both opaque *and* the routing path). Resolves follow-on Q1. |
+| Session `{id}` | **Deterministic per-owner claim name** `s-{sha256(owner)[:16]}`; public id `= {namespace}-{name}` (no PII — hashed — *and* the routing path). One owner ⇒ one name, which is how **one sandbox per user** is enforced (API-server uniqueness, race-free). Supersedes the earlier opaque-random-name decision. |
 | TTL / cleanup | **In the backend** (no separate controller for now). |
 
 This plan is written against the **actual repo state**, not a greenfield. A large
@@ -51,14 +51,14 @@ is orchestration and authorization, not terminal proxying.
 
 | # | Gap | Status today | Priority |
 |---|---|---|---|
-| G1 | **Backend control service** (creates/lists/deletes `KubeSandboxSession` claims, enforces quota, surfaces session URL). | Helm scaffold only, no app. | **P0** |
+| G1 | **Backend control service** (creates/lists/deletes `KubeSandboxSession` claims, enforces one sandbox per user, surfaces session URL). | Helm scaffold only, no app. | **P0** |
 | G2 | **Per-session ownership authorization.** Session URLs are routed but not protected by an *ownership-aware* policy — any authenticated Authentik user could reach any session. | **✅ Done (rev 11, 2026-07-01).** Backend-owned OIDC/PKCE flow (Options A+B). Full browser smoke test on prod-k3s: unauthenticated → 302 → Authentik login → cookie → authz 200 → ttyd. Negative test (user B → 403) confirmed. `sessionAuth.enabled: true` on prod. | ~~P0~~ |
 | G1h | **Backend NetworkPolicy (anti-spoofing).** Backend trusts `X-User-*`; nothing stopped an in-cluster pod from spoofing identity on `/api` / `/authz`. | **Done rev 5** (`networkpolicy.yaml`, default-on, ingress from `envoy-gateway-system` only). | ~~P0~~ |
 | G2b | **Switch routing to path-based** `kubesandbox.com/s/{id}` — composition HTTPRoute + ttyd base-path. | **Done 2026-06-26** (composition updated). | ~~P0~~ |
 | G3 | **TTL enforcement / cleanup.** XRD has `ttlMinutes` + `status.expiresAt`, but something must actually delete expired claims — safely (see post-mortem). | **Done rev 5**: in-backend TTL loop (`cleanup.go`) + backstop sweep CronJob (`sweep-cronjob.yaml`, dryRun). Unit-tested; live-test pending. | ~~P0~~ |
 | G4 | **Backend Authentik client + token validation.** Frontend client exists; backend needs to validate user identity and map `sub → ownerRef`. | Not implemented. | **P1** |
 | G5 | **Frontend SPA** (signup, session dashboard, "open terminal"). | Scaffold only. | **P1** |
-| G6 | **Tenant / user model & quotas** (per-tenant concurrent session caps, profiles → resources). | Partial (profile enum exists). | **P1** |
+| G6 | **Tenant / user model & quotas** (one sandbox per user via deterministic claim naming, profiles → resources). | Partial (profile enum exists). | **P1** |
 | G7 | **Observability & alerting** — especially "claim stuck Terminating" and "vcluster not ready," per post-mortem action items. | Not implemented. | **P2** |
 | G8 | **Starter labs** (`starterLabRef`) seeding content into the vcluster. | Field exists, unused. | **P2** |
 
@@ -124,12 +124,13 @@ Decisions are locked (see top of doc). Remaining setup:
       validation in the backend is G4 — see below.)*
 - [ ] Claim CRUD via the **`client-go` dynamic client** against
       `platform.kubesandbox.com/v1alpha1` `kubesandboxsessions` in the configured
-      namespace. Mint an **opaque random name** `s-xxxxxxxx`; the public id is
-      `{namespace}-{name}`.
+      namespace. Derive a **deterministic per-owner name**
+      `s-{sha256(owner)[:16]}`; the public id is `{namespace}-{name}`.
 - [ ] Create `KubeSandboxSession` claims with `tenantRef = ownerRef = sub`,
       `profile`, `ttlMinutes`; map `profile → resources` (e.g. starter
-      `250m/256Mi`, standard `500m/512Mi`, advanced `1/1Gi`) and enforce a
-      per-user concurrency cap (`MAX_SESSIONS_PER_USER`, default 3).
+      `250m/256Mi`, standard `500m/512Mi`, advanced `1/1Gi`). The
+      **one-sandbox-per-user** rule needs no explicit check: the deterministic
+      claim name makes a duplicate create fail `AlreadyExists` → `409`.
 - [ ] Read claim `status` and return the session URL
       (`kubesandbox.com/s/{id}`) + phase to the frontend (poll until
       `workspaceReady`).
@@ -232,10 +233,13 @@ JWT deferred to G4), path-based `/s/{id}` routing with opaque `{id}`, and
 TTL/cleanup in the backend.
 
 ### Follow-on questions surfaced by these choices
-1. ~~**`{id}` format**~~ — **resolved:** the backend mints an **opaque random
-   claim name** `s-xxxxxxxx`; the public id is `{namespace}-{name}`, so it is
-   both opaque (no PII) *and* exactly the path the Crossplane HTTPRoute / ttyd
-   base path already use. No separate id field needed.
+1. ~~**`{id}` format**~~ — **resolved (revised):** the backend derives a
+   **deterministic per-owner claim name** `s-{sha256(owner)[:16]}`; the public
+   id is `{namespace}-{name}`, so it is PII-free (hashed) *and* exactly the
+   path the Crossplane HTTPRoute / ttyd base path already use. Determinism is
+   deliberate: it makes the API server enforce **one sandbox per user**
+   atomically (duplicate create → `AlreadyExists`). No separate id field
+   needed.
 2. ~~**ttyd base-path mechanism**~~ — **resolved:** chose `ttyd -b /s/{id}`
    (no Envoy rewrite). The base-path flag avoids trailing-slash / relative-URL
    fragility and keeps the gateway config simple (the HTTPRoute forwards the

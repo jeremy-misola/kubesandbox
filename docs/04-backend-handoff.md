@@ -21,14 +21,14 @@ chart override.
 
 | Gap | Status |
 |---|---|
-| G1 Backend control service | **Deployed & verified on prod-k3s.** API CRUD, ownership scoping, quota, composition provisioning all live-tested OK. |
+| G1 Backend control service | **Deployed & verified on prod-k3s.** API CRUD, ownership scoping, one-sandbox-per-user enforcement, composition provisioning all live-tested OK. *(Design revised: per-user cap replaced by a singleton enforced via deterministic claim naming.)* |
 | G2 Per-session ownership authz | **✅ Fully enabled and verified on prod-k3s.** Session HTTPRoutes in shared `kubesandbox` ns + `session-route: "true"` label + ReferenceGrant; ext-authz SecurityPolicy active; backend owns the OIDC/PKCE flow. Negative test (user B → 403) confirmed. |
 | Backend NetworkPolicy (G1 hardening) | **Added, default-on, verified live.** Restricts backend ingress to `envoy-gateway-system`; spoofed `X-User-*` from other namespaces fails. |
 | G2b Path-based routing | **Done & verified live.** `/s/{id}` returns ttyd 200 through the gateway. |
 | G3 TTL enforcement | **Implemented, not live-tested.** In-backend TTL loop + backstop sweep CronJob (`dryRun: true`). Unit-tested only — see §5 next steps. |
 | G4 Backend Authentik client + token validation | **Deployed; JWT enforcing, valid-token path unverified.** Rejects missing/invalid tokens (401). Valid-bearer + `X-User-*` injection still needs a browser login to confirm — needs the frontend to exist. |
 | G5 Frontend SPA | **Not built.** Must attach bearer tokens to `/api` (see §3). |
-| G6 Tenant/quota model | **Partial.** Per-user cap implemented; profiles→resources implemented & verified. |
+| G6 Tenant/quota model | **Partial.** One sandbox per user enforced structurally (deterministic claim name → `AlreadyExists`); profiles→resources implemented & verified. |
 | G7 Observability | **Not started.** |
 | G8 Starter labs | **Not started.** |
 

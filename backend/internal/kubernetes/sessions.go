@@ -2,7 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -22,7 +21,7 @@ import (
 // Sentinel errors returned by the service and mapped to HTTP codes by handlers.
 var (
 	ErrNotFound      = errors.New("session not found")
-	ErrQuotaExceeded = errors.New("session quota exceeded")
+	ErrAlreadyExists = errors.New("session already exists for this user")
 	ErrInvalidID     = errors.New("invalid session id")
 )
 
@@ -39,17 +38,15 @@ type SessionService struct {
 	client       dynamic.Interface
 	namespace    string
 	baseURL      string
-	maxPerUser   int
 	defaultImage string
 }
 
 // NewSessionService constructs a SessionService.
-func NewSessionService(client dynamic.Interface, namespace, baseURL string, maxPerUser int, defaultImage string) *SessionService {
+func NewSessionService(client dynamic.Interface, namespace, baseURL string, defaultImage string) *SessionService {
 	return &SessionService{
 		client:       client,
 		namespace:    namespace,
 		baseURL:      strings.TrimRight(baseURL, "/"),
-		maxPerUser:   maxPerUser,
 		defaultImage: defaultImage,
 	}
 }
@@ -59,19 +56,17 @@ func (s *SessionService) resource() dynamic.ResourceInterface {
 }
 
 // Create mints a new claim owned by ownerRef. tenantRef is set equal to ownerRef
-// (1 tenant = 1 user). It enforces the per-user concurrency cap.
+// (1 tenant = 1 user).
+//
+// One sandbox per user: the claim name is derived deterministically from the
+// owner (see sessionName), so the Kubernetes API server enforces the singleton
+// atomically — concurrent creates race on the same name and all but one fail
+// with AlreadyExists. No list-then-create check, no TOCTOU window. A claim that
+// is still tearing down (deletionTimestamp set) also occupies the name, so
+// re-creation is blocked until cleanup finishes.
 func (s *SessionService) Create(ctx context.Context, ownerRef string, req models.CreateSessionRequest) (*models.Session, error) {
 	if !req.Profile.Valid() {
 		return nil, fmt.Errorf("invalid profile %q", req.Profile)
-	}
-
-	// Enforce the per-user concurrency cap.
-	existing, err := s.List(ctx, ownerRef)
-	if err != nil {
-		return nil, fmt.Errorf("list existing sessions: %w", err)
-	}
-	if len(existing) >= s.maxPerUser {
-		return nil, ErrQuotaExceeded
 	}
 
 	ttl := req.TTLMinutes
@@ -90,10 +85,7 @@ func (s *SessionService) Create(ctx context.Context, ownerRef string, req models
 		image = s.defaultImage
 	}
 
-	name, err := mintName()
-	if err != nil {
-		return nil, fmt.Errorf("mint session name: %w", err)
-	}
+	name := sessionName(ownerRef)
 
 	res := req.Profile.Resources()
 	spec := map[string]interface{}{
@@ -132,6 +124,9 @@ func (s *SessionService) Create(ctx context.Context, ownerRef string, req models
 
 	created, err := s.resource().Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			return nil, ErrAlreadyExists
+		}
 		return nil, fmt.Errorf("create claim: %w", err)
 	}
 	sess := s.ToSession(created)
@@ -319,13 +314,12 @@ func (s *SessionService) nameFromID(id string) (string, error) {
 	return name, nil
 }
 
-// mintName returns an opaque random claim name like "s-1a2b3c4d".
-func mintName() (string, error) {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return "s-" + hex.EncodeToString(b), nil
+// sessionName derives the deterministic claim name for an owner, e.g.
+// "s-1a2b3c4d5e6f7a8b". One owner maps to exactly one name, which is how the
+// one-sandbox-per-user invariant is enforced: the API server rejects a second
+// claim with the same name (AlreadyExists), atomically and race-free.
+func sessionName(ownerRef string) string {
+	return "s-" + ownerHash(ownerRef)[:16]
 }
 
 // ownerHash produces a label-safe (DNS-1123) hash of an owner identifier,

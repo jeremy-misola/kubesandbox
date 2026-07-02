@@ -18,14 +18,22 @@ prefix unchanged) and requires identity headers:
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/sessions` | Create a session. Body: `{ "profile": "standard", "ttlMinutes": 60, "workspaceImage": "...", "starterLabRef": "..." }`. |
-| GET | `/api/sessions` | List the caller's sessions. |
+| POST | `/api/sessions` | Create the caller's session. Body: `{ "profile": "standard", "ttlMinutes": 60, "workspaceImage": "...", "starterLabRef": "..." }`. Returns `409 session_exists` if the caller already has one (including one still tearing down). |
+| GET | `/api/sessions` | List the caller's sessions (0 or 1). |
 | GET | `/api/sessions/{id}` | Get one session the caller owns. |
 | DELETE | `/api/sessions/{id}` | Delete one session the caller owns. |
 | GET | `/api/sessions/{id}/events` | SSE stream of the session's lifecycle. |
 
-`{id}` is the opaque public id `{namespace}-{name}` (e.g. `playground-s-1a2b3c4d`),
+`{id}` is the public id `{namespace}-{name}` (e.g. `playground-s-1a2b3c4d5e6f7a8b`),
 which is also the routing path: the terminal lives at `{PublicBaseURL}/s/{id}`.
+
+**One sandbox per user.** The claim name is derived deterministically from the
+owner subject (`s-` + first 16 hex chars of `sha256(ownerRef)`), so each user
+maps to exactly one claim name. The Kubernetes API server enforces the
+singleton atomically: a second create for the same user fails with
+`AlreadyExists` → `409` — no list-then-create race. While a deleted session is
+still tearing down, the name remains occupied and re-creation returns `409`
+until cleanup completes.
 
 Ownership: list/get/delete/events are scoped to the caller (`ownerRef == sub`).
 Unknown, unowned, and malformed ids all return `404` (no existence leak).
@@ -41,7 +49,6 @@ Unknown, unowned, and malformed ids all return `404` (no existence leak).
 | `USER_NAME_HEADER` | `X-User-Name` | Display name header. |
 | `USER_GROUPS_HEADER` | `X-User-Groups` | Comma-separated groups header. |
 | `USER_ID_HEADER` | `X-User-Id` | Optional stable subject (preferred over email). |
-| `MAX_SESSIONS_PER_USER` | `3` | Per-user concurrency cap. |
 | `TTL_CLEANUP_INTERVAL` | `1` | Minutes; reserved for the G3 TTL loop (not run in G1). |
 
 `tenantRef = ownerRef = subject` (1 tenant = 1 user).

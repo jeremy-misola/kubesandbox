@@ -49,7 +49,7 @@ func newTTLService(objs ...runtime.Object) *SessionService {
 	scheme := runtime.NewScheme()
 	listKinds := map[schema.GroupVersionResource]string{models.GVR: models.Kind + "List"}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, objs...)
-	return NewSessionService(client, "playground", "https://kubesandbox.com", 3, models.DefaultWorkspaceImage)
+	return NewSessionService(client, "playground", "https://kubesandbox.com", models.DefaultWorkspaceImage)
 }
 
 func TestClaimExpiry(t *testing.T) {

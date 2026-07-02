@@ -16,8 +16,8 @@ routes are protected by a **backend-owned OIDC/PKCE flow** behind Envoy
 ext-authz. The SPA's job is narrow and well-defined:
 
 1. **Sign the user in** (Authentik OIDC).
-2. **Session dashboard** — list the user's sessions, create new ones (profile +
-   TTL), watch them go `Ready` live, delete them.
+2. **Sandbox dashboard** — show the user's single sandbox (one per user),
+   create it (profile + TTL), watch it go `Ready` live, delete it.
 3. **Open terminal** — hand the user off to `{PublicBaseURL}/s/{id}` where ttyd
    lives.
 
@@ -268,7 +268,7 @@ Typed client wrapping the endpoints (all Zod-validated at the boundary):
 **Error mapping** (mirror the backend): `400 invalid_request` /
 `400 invalid_profile`, `401` (missing/invalid bearer → refresh-token renew /
 re-auth), `404 not_found` (unknown/unowned/malformed id — same code, no
-existence leak), `429 quota_exceeded` (surface "you've hit your session cap"),
+existence leak), `409 session_exists` (surface "you already have a sandbox" — one per user, including one still tearing down),
 `5xx` (retry-with-backoff + toast). See design-principles §3/§4 for placement +
 messaging.
 

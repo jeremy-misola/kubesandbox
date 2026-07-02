@@ -71,7 +71,7 @@ func newAuthzService(objs ...runtime.Object) *k8s.SessionService {
 		models.GVR: models.Kind + "List",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, objs...)
-	return k8s.NewSessionService(client, "playground", "https://kubesandbox.com", 3, models.DefaultWorkspaceImage)
+	return k8s.NewSessionService(client, "playground", "https://kubesandbox.com", models.DefaultWorkspaceImage)
 }
 
 const testSecret = "test-hmac-secret-32-bytes-padding"

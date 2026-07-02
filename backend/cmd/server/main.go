@@ -33,7 +33,6 @@ func main() {
 		client,
 		cfg.Namespace,
 		cfg.PublicBaseURL,
-		cfg.MaxSessionsPerUser,
 		models.DefaultWorkspaceImage,
 	)
 

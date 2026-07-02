@@ -222,8 +222,9 @@ session; nothing persisted beyond the tab (`sessionStorage` only).
   §7). Add elapsed-time display if not present.
 - [ ] **3.6 Delete.** Optimistic removal from the list; rollback on error;
   `invalidate` on settle. Confirm the sandbox actually tears down.
-- [ ] **3.7 Quota (429).** Hit the concurrency cap → surface "you've reached your
-  session limit" (already mapped in `CreateSessionDialog`) — verify live.
+- [ ] **3.7 Singleton (409).** Create while a sandbox exists (or is still
+  tearing down) → surface "you already have a sandbox" (mapped in
+  `CreateSessionDialog` as `session_exists`) — verify live.
 - [ ] **3.8 404 semantics.** Unknown/unowned id → same `not_found`; confirm no
   existence leak and a clean "session not found" on the detail page.
 
@@ -291,7 +292,7 @@ keyboard- and screen-reader-usable; layout holds on mobile.
   - `StatusBadge.tone()` — phase/`workspaceReady` → label+class.
 - [ ] **6.4 Hook/component tests.** `useSessions` optimistic delete rollback;
   `useSessionEvents` cache writes + polling fallback (mocked stream);
-  `CreateSessionDialog` submit + quota error.
+  `CreateSessionDialog` submit + session-exists error.
 - [ ] **6.5 CI.** Add `typecheck` + `lint` + `test` to
   `.github/workflows/frontend.yml` (gate the image build). The build/push path
   contract already matches the scaffold — no path change needed.

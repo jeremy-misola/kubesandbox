@@ -32,8 +32,6 @@ type Config struct {
 
 	// TTLCleanupInterval is reserved for the G3 TTL loop.
 	TTLCleanupInterval time.Duration
-	// MaxSessionsPerUser caps concurrent sessions per owner.
-	MaxSessionsPerUser int
 
 	// --- G2 Option B: backend-owned session auth ---
 
@@ -123,7 +121,6 @@ func Load() Config {
 		UserIDHeader:     getenv("USER_ID_HEADER", "X-User-Id"),
 
 		TTLCleanupInterval: time.Duration(getenvInt("TTL_CLEANUP_INTERVAL", 1)) * time.Minute,
-		MaxSessionsPerUser: getenvInt("MAX_SESSIONS_PER_USER", 3),
 
 		OIDCIssuer:        oidcIssuer,
 		OIDCClientID:      getenv("OIDC_CLIENT_ID", ""),

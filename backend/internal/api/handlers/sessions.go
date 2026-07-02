@@ -44,10 +44,10 @@ func (h *SessionHandler) Create(c *gin.Context) {
 	sess, err := h.svc.Create(c.Request.Context(), ident.Subject, req)
 	if err != nil {
 		switch {
-		case errors.Is(err, k8s.ErrQuotaExceeded):
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "quota_exceeded",
-				"message": "you have reached the maximum number of concurrent sessions",
+		case errors.Is(err, k8s.ErrAlreadyExists):
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "session_exists",
+				"message": "you already have a sandbox (or one is still being cleaned up); delete it before creating a new one",
 			})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{

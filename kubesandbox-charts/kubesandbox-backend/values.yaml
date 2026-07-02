@@ -126,8 +126,6 @@ config:
   userGroupsHeader: "X-User-Groups"
   # Stable subject id; preferred over email as ownerRef when present
   userIdHeader: "X-User-Id"
-  # Maximum concurrent sessions per user
-  maxSessionsPerUser: "3"
   # TTL cleanup interval in minutes (reserved for the G3 TTL loop)
   ttlCleanupInterval: "1"
 

@@ -59,8 +59,6 @@ spec:
               value: {{ .Values.config.userGroupsHeader | quote }}
             - name: USER_ID_HEADER
               value: {{ .Values.config.userIdHeader | quote }}
-            - name: MAX_SESSIONS_PER_USER
-              value: {{ .Values.config.maxSessionsPerUser | quote }}
             - name: TTL_CLEANUP_INTERVAL
               value: {{ .Values.config.ttlCleanupInterval | quote }}
             {{- if .Values.sessionAuth.enabled }}
