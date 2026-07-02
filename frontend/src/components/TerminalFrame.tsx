@@ -30,6 +30,7 @@ import { cn, prefersReducedMotion } from "@/lib/utils";
  */
 
 type Phase = "probing" | "auth" | "booting" | "live" | "error";
+type AuthState = "idle" | "pending" | "blocked";
 
 const MIN_BOOT_MS = 1100;
 
@@ -50,11 +51,13 @@ export function TerminalFrame({
   className?: string;
 }) {
   const [phase, setPhase] = useState<Phase>("probing");
+  const [authState, setAuthState] = useState<AuthState>("idle");
   const [frameKey, setFrameKey] = useState(0); // bump to force-reload iframe
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const shellRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<Window | null>(null);
   const bootStartedAt = useRef(0);
   const revealTimer = useRef<number | undefined>(undefined);
 
@@ -77,6 +80,10 @@ export function TerminalFrame({
     setPhase("probing");
     const result = await probe();
     if (result === "ok") {
+      // A finished auth popup shows raw ttyd — close it, the pty lives here.
+      popupRef.current?.close();
+      popupRef.current = null;
+      setAuthState("idle");
       bootStartedAt.current = Date.now();
       setFrameKey((k) => k + 1);
       setPhase("booting");
@@ -87,23 +94,83 @@ export function TerminalFrame({
 
   useEffect(() => {
     void connect();
-    return () => window.clearTimeout(revealTimer.current);
+    return () => {
+      window.clearTimeout(revealTimer.current);
+      popupRef.current?.close();
+    };
   }, [connect]);
 
-  // While waiting on the popup login: re-probe on focus + a slow poll, and
-  // flip straight into the boot sequence the moment the cookie lands.
+  /**
+   * Run the backend's OIDC flow in a small popup window (top-level browsing
+   * context, so Authentik's frame-blocking doesn't apply). We keep the
+   * handle: the flow bounces through auth.jeremymr.dev (cross-origin,
+   * location unreadable) and lands back on /s/{id} (same-origin again) —
+   * the moment we can read its location, sign-in is done, so we close the
+   * popup ourselves and boot the embedded frame. If you're already signed
+   * in to Authentik, the redirects complete without any interaction and the
+   * popup only flashes for a moment.
+   */
+  const openAuthPopup = useCallback(() => {
+    const w = 520;
+    const h = 680;
+    const left = Math.max(0, window.screenX + (window.outerWidth - w) / 2);
+    const top = Math.max(0, window.screenY + (window.outerHeight - h) / 2);
+    const popup = window.open(
+      terminalUrl(id),
+      "kubesandbox-terminal-auth",
+      `popup=yes,width=${w},height=${h},left=${left},top=${top}`,
+    );
+    popupRef.current = popup;
+    setAuthState(popup ? "pending" : "blocked");
+  }, [id]);
+
+  // While waiting on the popup: watch for it to land back on our origin
+  // (auth finished), re-probe as a fallback, and re-check when it closes.
   useEffect(() => {
     if (phase !== "auth") return;
     let cancelled = false;
-    const check = async () => {
-      if ((await probe()) === "ok" && !cancelled) void connect();
+    let probing = false;
+
+    const checkProbe = async () => {
+      if (probing) return;
+      probing = true;
+      const ok = (await probe()) === "ok";
+      probing = false;
+      if (ok && !cancelled) void connect();
     };
-    const interval = window.setInterval(check, 3000);
-    window.addEventListener("focus", check);
+
+    const watch = window.setInterval(() => {
+      const popup = popupRef.current;
+      if (popup) {
+        if (popup.closed) {
+          // User closed it (or we did after a completed flow elsewhere).
+          popupRef.current = null;
+          setAuthState("idle");
+          void checkProbe();
+          return;
+        }
+        try {
+          // Throws while the popup is on Authentik (cross-origin); readable
+          // again once the flow redirects back to /s/{id} on our origin.
+          if (popup.location.origin === window.location.origin) {
+            void checkProbe();
+          }
+        } catch {
+          /* still on the identity provider */
+        }
+      }
+    }, 500);
+
+    // Fallbacks: slow poll + focus, in case the popup handle is unusable.
+    const poll = window.setInterval(checkProbe, 3000);
+    const onFocus = () => void checkProbe();
+    window.addEventListener("focus", onFocus);
+
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener("focus", check);
+      window.clearInterval(watch);
+      window.clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
     };
   }, [phase, probe, connect]);
 
@@ -266,22 +333,27 @@ export function TerminalFrame({
                   Unlock this terminal
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  The terminal has its own sign-in that can't run inside an
-                  embedded frame. Authorize it once in a popup — this panel
-                  connects by itself when you're done.
+                  The terminal's sign-in can't run inside an embedded frame,
+                  so it runs in a small window instead. It closes itself and
+                  the shell connects right here.
                 </p>
-                <Button
-                  className="mt-5"
-                  onClick={() =>
-                    window.open(terminalUrl(id), "_blank", "noopener")
-                  }
-                >
-                  Authorize terminal
+                <Button className="mt-5" onClick={openAuthPopup}>
+                  {authState === "pending"
+                    ? "Reopen sign-in window"
+                    : "Unlock terminal"}
                 </Button>
-                <p className="mt-3 font-mono text-[11px] text-muted-foreground/70">
-                  waiting for authorization
-                  <span className="cursor-blink -mb-0.5 ml-1 inline-block h-3 w-1.5 bg-muted-foreground/70 align-middle" />
-                </p>
+                {authState === "pending" && (
+                  <p className="mt-3 font-mono text-[11px] text-muted-foreground/70">
+                    finishing sign-in
+                    <span className="cursor-blink -mb-0.5 ml-1 inline-block h-3 w-1.5 bg-muted-foreground/70 align-middle" />
+                  </p>
+                )}
+                {authState === "blocked" && (
+                  <p className="mt-3 text-xs text-warning/90">
+                    Your browser blocked the sign-in window — allow popups for
+                    this site and try again.
+                  </p>
+                )}
               </div>
             )}
 
