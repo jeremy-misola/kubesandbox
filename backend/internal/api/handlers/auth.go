@@ -13,18 +13,9 @@ import (
 )
 
 // AuthCallbackHandler handles the OIDC authorization code callback at
-// /oauth2/callback (G2 Option B).
-//
-// Flow:
-//  1. Authentik redirects here after the user logs in, with ?code=...&state=...
-//  2. Verify the signed state token (proves it was us that started the flow,
-//     contains the code_verifier and the original /s/{id}/... URL).
-//  3. Exchange the code at Authentik's token endpoint (confidential client +
-//     PKCE; server-to-server over TLS).
-//  4. Parse the returned ID token (no JWKS validation needed — the token came
-//     directly from Authentik over TLS, so the transport is the trust anchor).
-//  5. Sign a session cookie with the user's identity (sub, email, name).
-//  6. Redirect the browser back to the original /s/{id}/... URL.
+// /oauth2/callback: verify the signed state, verify the nonce cookie (CSRF
+// binding), exchange the code for tokens, and set a signed session cookie
+// before redirecting back to the original /s/{id} URL.
 type AuthCallbackHandler struct {
 	cfg config.Config
 }
@@ -38,58 +29,38 @@ func NewAuthCallbackHandler(cfg config.Config) *AuthCallbackHandler {
 func (h *AuthCallbackHandler) Callback(c *gin.Context) {
 	stateToken := c.Query("state")
 	code := c.Query("code")
-	errParam := c.Query("error")
 
-	// Authentik may return an error (e.g. access_denied).
-	if errParam != "" {
+	if errParam := c.Query("error"); errParam != "" {
 		errDesc := c.Query("error_description")
 		log.Printf("auth callback: provider error: %s: %s", errParam, errDesc)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   errParam,
-			"message": errDesc,
-		})
+		respondError(c, http.StatusBadRequest, errParam, errDesc)
 		return
 	}
-
 	if stateToken == "" || code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "bad_request",
-			"message": "missing state or code parameter",
-		})
+		respondError(c, http.StatusBadRequest, "bad_request", "missing state or code parameter")
 		return
 	}
 
-	// --- Step 1: Verify state token ---
 	stateClaims, err := auth.VerifyState(stateToken, h.cfg.SessionSecret)
 	if err != nil {
 		log.Printf("auth callback: invalid state token: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid_state",
-			"message": "state token is invalid or expired — please try again",
-		})
+		respondError(c, http.StatusBadRequest, "invalid_state", "state token is invalid or expired — please try again")
 		return
 	}
 
-	// --- Step 1b: Verify the nonce cookie matches the state (CSRF binding) ---
-	// The state token alone is portable — anyone who obtains a valid state+code
-	// pair (e.g. from their own login attempt) could otherwise get a victim's
-	// browser to complete this callback and end up logged in as them. The
-	// nonce cookie can only be present if this browser is the one /authz
-	// redirected in the first place, so a missing/mismatched nonce means this
-	// callback was not triggered by the browser that started the login.
+	// Verify the nonce cookie matches the state. The nonce cookie can only be
+	// present if this browser is the one /authz redirected, so a missing or
+	// mismatched nonce means the callback wasn't triggered by the browser that
+	// started the login. Cleared unconditionally so it can't be replayed.
 	clearNonceCookie(c, h.cfg.SessionCookieDomain)
 	nonceCookie, err := c.Cookie(oauthNonceCookieName)
 	if err != nil || nonceCookie == "" ||
 		subtle.ConstantTimeCompare([]byte(nonceCookie), []byte(stateClaims.Nonce)) != 1 {
 		log.Printf("auth callback: nonce mismatch or missing (cookie present: %v)", err == nil)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid_state",
-			"message": "login session could not be verified — please try again",
-		})
+		respondError(c, http.StatusBadRequest, "invalid_state", "login session could not be verified — please try again")
 		return
 	}
 
-	// --- Step 2: Exchange code for tokens ---
 	tokenResp, err := auth.ExchangeCode(
 		c.Request.Context(),
 		h.cfg.OIDCTokenEndpoint,
@@ -101,25 +72,17 @@ func (h *AuthCallbackHandler) Callback(c *gin.Context) {
 	)
 	if err != nil {
 		log.Printf("auth callback: code exchange failed: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error":   "token_exchange_failed",
-			"message": "could not exchange authorization code",
-		})
+		respondError(c, http.StatusBadGateway, "token_exchange_failed", "could not exchange authorization code")
 		return
 	}
 
-	// --- Step 3: Parse ID token claims ---
 	idClaims, err := auth.ParseIDTokenClaims(tokenResp.IDToken)
 	if err != nil {
 		log.Printf("auth callback: parse id_token failed: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error":   "id_token_parse_failed",
-			"message": "could not read identity from provider token",
-		})
+		respondError(c, http.StatusBadGateway, "id_token_parse_failed", "could not read identity from provider token")
 		return
 	}
 
-	// --- Step 4: Sign session cookie ---
 	sessionToken, err := auth.SignSession(auth.SessionClaims{
 		Subject: idClaims.Sub,
 		Email:   idClaims.Email,
@@ -132,24 +95,19 @@ func (h *AuthCallbackHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	// --- Step 5: Set cookie + redirect ---
-	// HttpOnly: JS cannot read it (XSS protection).
-	// Secure: only sent over HTTPS.
-	// SameSite=Lax: cookie follows top-level navigations (needed for the
-	// post-login redirect from Authentik) but not cross-site AJAX.
-	maxAgeSecs := int(h.cfg.SessionMaxAge.Seconds())
+	// HttpOnly (JS can't read it), Secure (HTTPS only), SameSite=Lax (follows
+	// the post-login top-level redirect, not cross-site AJAX).
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     h.cfg.SessionCookieName,
 		Value:    sessionToken,
 		Path:     "/",
 		Domain:   h.cfg.SessionCookieDomain,
-		MaxAge:   maxAgeSecs,
+		MaxAge:   int(h.cfg.SessionMaxAge.Seconds()),
 		Secure:   true,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	// Redirect back to the original URL the user was trying to reach.
 	originalURL := stateClaims.OriginalURL
 	if originalURL == "" {
 		originalURL = h.cfg.PublicBaseURL + "/"
@@ -157,10 +115,8 @@ func (h *AuthCallbackHandler) Callback(c *gin.Context) {
 	c.Redirect(http.StatusFound, originalURL)
 }
 
-// clearNonceCookie deletes the one-time login nonce cookie (MaxAge<0) so it
-// can't be reused for a retried or replayed callback. Called as soon as the
-// nonce has been read, regardless of whether the rest of the callback
-// succeeds.
+// clearNonceCookie deletes the one-time login nonce cookie so it can't be
+// reused for a retried or replayed callback.
 func clearNonceCookie(c *gin.Context, domain string) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     oauthNonceCookieName,

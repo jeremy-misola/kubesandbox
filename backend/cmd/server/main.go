@@ -1,4 +1,4 @@
-// Command server is the KubeSandbox backend control service (G1).
+// Command server is the KubeSandbox backend control service.
 //
 // It exposes a small HTTP API for creating, listing, reading and deleting
 // KubeSandboxSession claims. Identity is taken from Envoy-forwarded X-User-*
@@ -46,15 +46,13 @@ func main() {
 		// No write timeout: SSE responses are long-lived.
 	}
 
-	// Background TTL cleanup loop (G3): enforces status.expiresAt server-side.
-	// Cancelled on shutdown so the loop exits cleanly with the process.
+	// Background TTL cleanup loop; cancelled on shutdown.
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	ttl := k8s.NewTTLController(svc, cfg.TTLCleanupInterval)
 	go ttl.Run(bgCtx)
 
-	// Hot warm-pool manager (docs/10 Phase B): keeps N unclaimed sandboxes
-	// running so creates are a metadata-only assignment; admits queued
-	// requests; recycles stale members. Strictly off the request path.
+	// Warm-pool manager: keeps N unclaimed sandboxes Ready so creates are a
+	// metadata-only assignment. Strictly off the request path.
 	if cfg.PoolEnabled {
 		pool := k8s.NewPoolManager(svc, queue, k8s.PoolConfig{
 			TargetWarm: cfg.PoolTargetWarm,

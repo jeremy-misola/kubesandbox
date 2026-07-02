@@ -12,21 +12,19 @@ import (
 
 // NewRouter builds the Gin engine.
 //
-// Route summary:
+// Routes:
 //
-//	GET  /health, /healthz         — unauthenticated kubelet probes (at root,
-//	                                  bypassing the gateway).
-//	/api/*                         — JWT-guarded session control API (G1/G4).
-//	GET  /authz, /authz/*          — ext-authz ForwardAuth endpoint (G2 Option B):
-//	                                  reads the session cookie; no valid cookie →
-//	                                  redirect to Authentik; valid → ownership check.
-//	GET  /oauth2/callback          — OIDC callback: exchange code, set session
-//	                                  cookie, redirect to original URL. No auth.
+//	GET  /health, /healthz  — unauthenticated kubelet probes at root.
+//	/api/*                  — identity-guarded session control API.
+//	GET  /authz, /authz/*   — ext-authz endpoint: reads the session cookie; no
+//	                          valid cookie → redirect to Authentik; valid →
+//	                          ownership check.
+//	GET  /oauth2/callback   — OIDC callback: exchange code, set session cookie,
+//	                          redirect to original URL. No auth.
 func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
-	// Unauthenticated probes (reached directly by the kubelet).
 	r.GET("/health", handlers.Health)
 	r.GET("/healthz", handlers.Health)
 
@@ -41,22 +39,16 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueu
 		api.GET("/sessions/:id", sessions.Get)
 		api.DELETE("/sessions/:id", sessions.Delete)
 		api.GET("/sessions/:id/events", sessions.Events)
-		// Warm-pool queue (Phase E): poll + SSE progress for queued creates.
 		api.GET("/queue", sessions.QueuePosition)
 		api.GET("/queue/events", sessions.QueueEvents)
 	}
 
-	// Ext-authz (ForwardAuth) endpoint for the per-session SecurityPolicy (G2
-	// Option B). No IdentityMiddleware: identity comes from the session cookie,
-	// not from X-User-* headers. The handler either redirects to Authentik (no
-	// valid cookie) or checks ownership and returns 200/403/503.
+	// Ext-authz endpoint. No IdentityMiddleware: identity comes from the session
+	// cookie, not X-User-* headers.
 	authz := handlers.NewAuthzHandler(svc, cfg)
 	r.GET("/authz", authz.Check)
 	r.GET("/authz/*rest", authz.Check)
 
-	// OIDC callback: receives ?code=...&state=... from Authentik after login.
-	// Sets the session cookie and redirects back to the original /s/{id}/... URL.
-	// No authentication required — this is the login completion endpoint.
 	callback := handlers.NewAuthCallbackHandler(cfg)
 	r.GET("/oauth2/callback", callback.Callback)
 

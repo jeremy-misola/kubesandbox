@@ -161,6 +161,21 @@ orchestration itself (Crossplane fan-out + Helm install take ~10 s total):
 At ~5 arrivals/hour against target 2, drain probability stays negligible
 (docs/08 §4).
 
+**Post-deploy addendum (2026-07-02, first production fill).** The first
+create after deploy (3:04 PM) was queued and admitted at 3:12 — the user
+raced the pool's very first fill. Member #1's pod was Running in 2.5 min
+(CPU fix + `watch: true` both confirmed live), but its claim only flipped
+`workspaceReady` at creation + 9 m 32 s: Crossplane core's realtime watch
+circuit for the composite type wasn't established yet after the XRD/
+composition update (XR condition `Responsive: WatchCircuitClosed` appeared
+only at 19:12:23), so XRs advanced on core's slow poll (~9.5 min observed —
+the same constant as the pre-fix measurement in §3, which was
+poll-dominated too). Once the circuit closed, the replacement member went
+created → Ready in **90 seconds**, confirming the ~1.5 min steady-state
+refill. Mitigation for the degraded-to-poll window (Crossplane restarts /
+XRD changes): set `--poll-interval=1m` on Crossplane core (crossplane-helm
+app values, outside this repo).
+
 ## 4. Live verification summary (2026-07-02, prod-k3s)
 
 All testing in throwaway namespace `kubesandbox-hotpool-test`; everything

@@ -35,18 +35,14 @@ type Resources struct {
 	Memory string `json:"memory"`
 }
 
-// DefaultResources is the single uniform sandbox shape. The platform was
-// collapsed to ONE sandbox type (sign-off 2026-07-02, docs/08 §2.2): the
-// starter/standard/advanced profiles are gone, which is what makes warm pool
-// members globally fungible — any warm sandbox can be handed to any user.
+// DefaultResources is the single uniform sandbox shape. Every sandbox is
+// identical, which is what makes warm pool members fungible — any warm sandbox
+// can be handed to any user.
 var DefaultResources = Resources{CPU: "500m", Memory: "512Mi"}
 
 // CreateSessionRequest is the JSON body of POST /api/sessions.
-//
-// Note: there is no profile — every sandbox is identical (single-type
-// platform). workspaceImage/starterLabRef are honored only on the legacy
-// direct-create path; hot-pool assignment hands over a pre-provisioned,
-// uniform sandbox.
+// workspaceImage/starterLabRef are honored only on the legacy direct-create
+// path; hot-pool assignment hands over a pre-provisioned, uniform sandbox.
 type CreateSessionRequest struct {
 	TTLMinutes     int    `json:"ttlMinutes,omitempty"`
 	WorkspaceImage string `json:"workspaceImage,omitempty"`
@@ -82,7 +78,7 @@ type Session struct {
 }
 
 // QueueStatus is returned when the warm pool is empty and the request has been
-// queued (Phase E). The client should follow /api/queue/events (SSE) for
+// queued. The client should follow /api/queue/events (SSE) for
 // progress and the assigned session.
 type QueueStatus struct {
 	Status   string `json:"status"` // always "queued"

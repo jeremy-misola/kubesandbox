@@ -1,5 +1,5 @@
 // Package kubernetes wraps the client-go dynamic client used to manage
-// KubeSandboxSession claims. No generated CRD types are required (G1 decision).
+// KubeSandboxSession claims. No generated CRD types are required.
 package kubernetes
 
 import (

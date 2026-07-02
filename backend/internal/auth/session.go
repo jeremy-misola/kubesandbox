@@ -1,5 +1,5 @@
 // Package auth provides session cookie signing/verification and OIDC PKCE
-// utilities for the backend-owned session auth flow (G2 Option B).
+// utilities for the backend-owned session auth flow.
 package auth
 
 import (

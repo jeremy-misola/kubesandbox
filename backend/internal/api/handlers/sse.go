@@ -18,36 +18,24 @@ import (
 // heartbeatInterval keeps idle SSE connections (and intermediaries) alive.
 const heartbeatInterval = 25 * time.Second
 
-// Events handles GET /api/sessions/:id/events — a Server-Sent Events stream of
-// the session's lifecycle. Ownership is enforced before any data is streamed.
+// Events handles GET /api/sessions/:id/events — an SSE stream of the session's
+// lifecycle. Ownership is enforced before any data is streamed.
 func (h *SessionHandler) Events(c *gin.Context) {
 	ident := middleware.GetIdentity(c)
 	id := c.Param("id")
 
-	// Ownership + existence check (returns 404 for unknown/unowned/malformed).
 	current, err := h.svc.Get(c.Request.Context(), id, ident.Subject)
 	if err != nil {
 		respondLookupError(c, err)
 		return
 	}
 
-	flusher, ok := c.Writer.(http.Flusher)
+	flusher, ok := sseFlusher(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "streaming_unsupported",
-			"message": "server does not support streaming",
-		})
 		return
 	}
+	writeSSEHeaders(c)
 
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	// Disable proxy buffering so events flush immediately.
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.WriteHeader(http.StatusOK)
-
-	// Emit the current state right away.
 	writeSessionEvent(c, flusher, "update", current)
 
 	w, err := h.svc.Watch(c.Request.Context(), current.Name)
@@ -66,9 +54,7 @@ func (h *SessionHandler) Events(c *gin.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// SSE comment line as keep-alive ping.
-			fmt.Fprint(c.Writer, ": ping\n\n")
-			flusher.Flush()
+			ssePing(c, flusher)
 		case ev, open := <-w.ResultChan():
 			if !open {
 				return
@@ -91,19 +77,15 @@ func (h *SessionHandler) Events(c *gin.Context) {
 }
 
 // QueueEvents handles GET /api/queue/events — an SSE stream of the caller's
-// warm-pool queue progress (Phase E). Events: "queued" (position updates),
-// then a terminal "assigned" (with the session) or "error". If the caller is
-// not queued but already owns a session, that session is emitted immediately
-// (covers the race where assignment lands before the stream opens).
+// warm-pool queue progress: "queued" position updates, then a terminal
+// "assigned" or "error". If the caller isn't queued but already owns a session,
+// that session is emitted immediately (covers the assignment-before-stream
+// race).
 func (h *SessionHandler) QueueEvents(c *gin.Context) {
 	ident := middleware.GetIdentity(c)
 
-	flusher, ok := c.Writer.(http.Flusher)
+	flusher, ok := sseFlusher(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "streaming_unsupported",
-			"message": "server does not support streaming",
-		})
 		return
 	}
 
@@ -114,17 +96,13 @@ func (h *SessionHandler) QueueEvents(c *gin.Context) {
 		ch, unsub, queued = h.queue.Subscribe(ident.Subject)
 	}
 	if !queued {
-		// Not in the queue: maybe already assigned. Emit the session if so.
 		sessions, err := h.svc.List(c.Request.Context(), ident.Subject)
 		if err == nil && len(sessions) > 0 {
 			writeSSEHeaders(c)
 			writeQueueEvent(c, flusher, k8s.QueueEvent{Type: "assigned", Session: &sessions[0]})
 			return
 		}
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "not_queued",
-			"message": "you are not in the queue",
-		})
+		respondError(c, http.StatusNotFound, "not_queued", "you are not in the queue")
 		return
 	}
 	defer unsub()
@@ -140,8 +118,7 @@ func (h *SessionHandler) QueueEvents(c *gin.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			fmt.Fprint(c.Writer, ": ping\n\n")
-			flusher.Flush()
+			ssePing(c, flusher)
 		case ev, open := <-ch:
 			if !open {
 				return
@@ -154,28 +131,39 @@ func (h *SessionHandler) QueueEvents(c *gin.Context) {
 	}
 }
 
+// sseFlusher returns the response flusher, writing a 500 if streaming is
+// unsupported.
+func sseFlusher(c *gin.Context) (http.Flusher, bool) {
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		respondError(c, http.StatusInternalServerError, "streaming_unsupported", "server does not support streaming")
+	}
+	return flusher, ok
+}
+
 func writeSSEHeaders(c *gin.Context) {
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Header().Set("X-Accel-Buffering", "no") // disable proxy buffering
 	c.Writer.WriteHeader(http.StatusOK)
 }
 
+func ssePing(c *gin.Context, flusher http.Flusher) {
+	fmt.Fprint(c.Writer, ": ping\n\n")
+	flusher.Flush()
+}
+
 func writeQueueEvent(c *gin.Context, flusher http.Flusher, ev k8s.QueueEvent) {
-	payload, err := json.Marshal(ev)
-	if err != nil {
-		return
+	if payload, err := json.Marshal(ev); err == nil {
+		writeRawEvent(c, flusher, ev.Type, string(payload))
 	}
-	writeRawEvent(c, flusher, ev.Type, string(payload))
 }
 
 func writeSessionEvent(c *gin.Context, flusher http.Flusher, event string, sess *models.Session) {
-	payload, err := json.Marshal(sess)
-	if err != nil {
-		return
+	if payload, err := json.Marshal(sess); err == nil {
+		writeRawEvent(c, flusher, event, string(payload))
 	}
-	writeRawEvent(c, flusher, event, string(payload))
 }
 
 func writeRawEvent(c *gin.Context, flusher http.Flusher, event, data string) {

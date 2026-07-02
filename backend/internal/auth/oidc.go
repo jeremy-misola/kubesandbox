@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // GenerateCodeVerifier produces a cryptographically random PKCE code_verifier
@@ -127,6 +128,11 @@ func ParseIDTokenClaims(idToken string) (*IDTokenClaims, error) {
 	}
 	if claims.Sub == "" {
 		return nil, fmt.Errorf("id_token missing sub claim")
+	}
+	// Reject an expired token when it carries an exp claim (a missing exp is
+	// tolerated for issuers that omit it).
+	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
+		return nil, fmt.Errorf("id_token has expired")
 	}
 	return &claims, nil
 }

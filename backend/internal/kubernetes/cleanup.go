@@ -10,14 +10,13 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 )
 
-// TTLController enforces session TTLs server-side (G3). Sessions are ephemeral;
-// this deletes any managed claim past its expiry regardless of client behaviour.
+// TTLController enforces session TTLs server-side. Sessions are ephemeral; this
+// deletes any managed claim past its expiry regardless of client behaviour.
 //
-// SAFE CLEANUP (per the 2026-06-24 post-mortem): it deletes only the top-level
-// KubeSandboxSession CLAIM and lets Crossplane cascade teardown via owner
-// references, using a BACKGROUND delete so a slow/stuck finalizer never blocks
-// the loop. It never blocks on child teardown; the sweep CronJob is the backstop
-// for namespaces orphaned by a wedged delete.
+// It deletes only the top-level KubeSandboxSession claim and lets Crossplane
+// cascade teardown via owner references, using a background delete so a stuck
+// finalizer never blocks the loop. The sweep CronJob is the backstop for
+// namespaces orphaned by a wedged delete.
 type TTLController struct {
 	svc      *SessionService
 	interval time.Duration
@@ -69,9 +68,9 @@ func (t *TTLController) reconcileOnce(ctx context.Context) (int, error) {
 		if c.GetDeletionTimestamp() != nil {
 			continue
 		}
-		// Unclaimed warm-pool members have no session lifecycle yet — their TTL
-		// starts at ASSIGNMENT. The pool manager owns their lifecycle
-		// (freshness recycling); reaping them here would drain the pool.
+		// Unclaimed warm members have no lifecycle yet — their TTL starts at
+		// assignment, and the pool manager owns them. Reaping here would drain
+		// the pool.
 		if poolState(&c) == poolAvailable {
 			continue
 		}

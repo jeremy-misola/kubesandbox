@@ -13,8 +13,8 @@ import (
 // contextKey is the gin context key under which the resolved identity is stored.
 const contextKey = "kubesandbox.identity"
 
-// Identity is the authenticated caller, derived from Envoy-forwarded headers
-// (G1). Subject is used as both ownerRef and tenantRef (1 tenant = 1 user).
+// Identity is the authenticated caller, derived from Envoy-forwarded headers.
+// Subject is used as both ownerRef and tenantRef (1 tenant = 1 user).
 type Identity struct {
 	Subject string
 	Email   string

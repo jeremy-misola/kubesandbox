@@ -23,17 +23,17 @@ type Config struct {
 	// URLs, e.g. https://kubesandbox.com -> https://kubesandbox.com/s/{id}.
 	PublicBaseURL string
 
-	// Identity headers injected by Envoy Gateway after edge OIDC/JWT (G1/G4).
-	// Still used by /api; not used by /authz in G2 Option B (cookie-based).
+	// Identity headers injected by Envoy Gateway after edge OIDC. Used by /api;
+	// /authz uses the session cookie instead.
 	UserEmailHeader  string
 	UserNameHeader   string
 	UserGroupsHeader string
 	UserIDHeader     string
 
-	// TTLCleanupInterval is reserved for the G3 TTL loop.
+	// TTLCleanupInterval is the interval of the server-side TTL cleanup loop.
 	TTLCleanupInterval time.Duration
 
-	// --- Hot warm-pool (docs/10) ---
+	// --- Hot warm-pool ---
 
 	// PoolEnabled turns the hot pool + assignment path on. When false the
 	// backend falls back to legacy direct creates (cold build on request).
@@ -48,7 +48,7 @@ type Config struct {
 	// PoolResync is the pool manager's periodic reconcile interval.
 	PoolResync time.Duration
 
-	// --- G2 Option B: backend-owned session auth ---
+	// --- Backend-owned session auth ---
 
 	// OIDCIssuer is the Authentik provider issuer URL
 	// (e.g. https://auth.jeremymr.dev/application/o/kubesandbox-backend/).
@@ -99,13 +99,28 @@ func getenvInt(key string, def int) int {
 	return n
 }
 
-// hostOf extracts the hostname from a URL string, returning "" on error.
+// getenvBool parses a boolean env var, falling back to def when unset or
+// unparseable.
+func getenvBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
+}
+
+// hostOf extracts the hostname (without port) from a URL string, returning ""
+// on error.
 func hostOf(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
 	}
-	return strings.Split(u.Host, ":")[0] // strip port if present
+	return u.Hostname()
 }
 
 // Load reads configuration from the environment, applying defaults.
@@ -137,7 +152,7 @@ func Load() Config {
 
 		TTLCleanupInterval: time.Duration(getenvInt("TTL_CLEANUP_INTERVAL", 1)) * time.Minute,
 
-		PoolEnabled:    getenv("POOL_ENABLED", "true") == "true",
+		PoolEnabled:    getenvBool("POOL_ENABLED", true),
 		PoolTargetWarm: getenvInt("POOL_TARGET_WARM", 2),
 		PoolMaxTotal:   getenvInt("POOL_MAX_TOTAL", 60),
 		PoolMaxWarmAge: time.Duration(getenvInt("POOL_MAX_WARM_AGE_HOURS", 24)) * time.Hour,

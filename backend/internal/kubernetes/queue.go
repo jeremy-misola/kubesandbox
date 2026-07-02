@@ -6,8 +6,7 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 )
 
-// QueueEvent is streamed to SSE subscribers of a queued create request
-// (Phase E: empty-pool fallback = queue, never a synchronous cold build).
+// QueueEvent is streamed to SSE subscribers of a queued create request.
 type QueueEvent struct {
 	// Type is "queued" (position update), "assigned" (Session set), or
 	// "error" (Message set).

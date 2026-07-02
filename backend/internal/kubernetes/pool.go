@@ -13,33 +13,28 @@ import (
 // markerOrphanGrace is how long an owner marker may exist without a matching
 // owned claim before the GC removes it. It covers the window between marker
 // create and member claim in Assign; anything older is a leak from a crashed
-// request and would otherwise block that user forever.
+// request that would otherwise block that user forever.
 const markerOrphanGrace = 2 * time.Minute
 
 // PoolConfig sizes the hot pool. All values are Helm-configurable.
 type PoolConfig struct {
 	// TargetWarm is how many hot, unclaimed, Ready sandboxes to maintain.
 	TargetWarm int
-	// MaxTotal is the cluster's concurrent-session ceiling: warm + live claims
-	// never exceed it (docs/08 §2.2, ~60).
+	// MaxTotal is the concurrent-session ceiling: warm + live never exceed it.
 	MaxTotal int
-	// MaxWarmAge: an available member older than this is recycled, not handed
-	// out (freshness, Phase E).
+	// MaxWarmAge: an available member older than this is recycled, not handed out.
 	MaxWarmAge time.Duration
-	// Resync is the periodic full-reconcile interval (safety net behind the
-	// watch).
+	// Resync is the periodic full-reconcile interval (backstop behind the watch).
 	Resync time.Duration
 }
 
-// PoolManager (Phase B) maintains the hot warm pool: it keeps TargetWarm
-// unclaimed sandboxes running, replaces claimed/recycled ones in the
-// background, admits queued requests when members become Ready, recycles
-// stale members, and garbage-collects orphaned one-per-user markers.
+// PoolManager maintains the hot warm pool: it keeps TargetWarm unclaimed
+// sandboxes Ready, replaces claimed/recycled ones, admits queued requests as
+// members become Ready, recycles stale members, and GCs orphaned markers.
 //
-// It is event-driven (a watch on managed claims pokes the reconcile loop) with
-// a periodic resync as backstop. Reconciliation is level-based: every pass
-// recomputes the desired actions from a fresh LIST, so missed events are
-// harmless. Provisioning happens strictly off the request path.
+// It is event-driven (a watch on managed claims pokes the loop) with a periodic
+// resync backstop. Reconciliation is level-based: every pass recomputes desired
+// actions from a fresh LIST, so missed events are harmless.
 type PoolManager struct {
 	svc   *SessionService
 	queue *AssignQueue
@@ -48,8 +43,8 @@ type PoolManager struct {
 	poke  chan struct{}
 }
 
-// NewPoolManager constructs a PoolManager. Zero/negative config values get
-// safe defaults (target 2, cap 60, warm age 24h, resync 30s).
+// NewPoolManager constructs a PoolManager. Zero/negative config values get safe
+// defaults (target 2, cap 60, warm age 24h, resync 30s).
 func NewPoolManager(svc *SessionService, queue *AssignQueue, cfg PoolConfig) *PoolManager {
 	if cfg.TargetWarm <= 0 {
 		cfg.TargetWarm = 2
@@ -105,8 +100,8 @@ func (p *PoolManager) Run(ctx context.Context) {
 	}
 }
 
-// watchLoop pokes the reconciler on any managed-claim event, reconnecting
-// with a small backoff when the watch drops.
+// watchLoop pokes the reconciler on any managed-claim event, reconnecting with
+// a small backoff when the watch drops.
 func (p *PoolManager) watchLoop(ctx context.Context) {
 	for {
 		w, err := p.svc.WatchManaged(ctx)
@@ -183,7 +178,6 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 			p.queue.Resolve(owner, sess, "")
 			admitted++
 		case errors.Is(err, ErrAlreadyExists):
-			// The user obtained a session some other way; unblock the queue.
 			p.queue.Resolve(owner, nil, "you already have a sandbox")
 		case errors.Is(err, ErrPoolEmpty):
 			return nil // no members left this pass; refill below next pass
@@ -194,19 +188,19 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 	}
 	availableNow := len(fresh) - admitted
 
-	// 2) Recycle stale members (never handed out; rebuilt fresh by refill).
+	// 2) Recycle stale members (rebuilt fresh by refill).
 	for i := range stale {
 		name := stale[i].GetName()
 		log.Printf("pool: recycling stale member %s (age > %s)", name, p.cfg.MaxWarmAge)
 		if err := p.svc.deleteByName(ctx, name); err != nil {
 			log.Printf("pool: recycle %s failed: %v", name, err)
 		} else {
-			total-- // capacity frees asynchronously, but don't double-provision against it
+			total-- // capacity frees asynchronously; don't double-provision against it
 		}
 	}
 
-	// 3) Trim overshoot (e.g. two replicas raced on refill): delete the
-	// YOUNGEST unclaimed members beyond target, preferring not-Ready ones.
+	// 3) Trim overshoot: delete the YOUNGEST unclaimed members beyond target,
+	// preferring not-Ready ones.
 	warm := availableNow + len(notReady)
 	if excess := warm - p.cfg.TargetWarm; excess > 0 {
 		victims := append([]unstructured.Unstructured{}, notReady...)
@@ -240,8 +234,8 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 	}
 
 	// 5) GC orphaned owner markers (crashed between marker create and member
-	// claim). A marker is kept while its owner holds a live claim or is
-	// younger than the grace window.
+	// claim). A marker is kept while its owner holds a live claim, is younger
+	// than the grace window, or is still queued.
 	markers, err := p.svc.listOwnerMarkers(ctx)
 	if err != nil {
 		return err

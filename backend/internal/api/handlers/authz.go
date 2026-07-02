@@ -14,23 +14,16 @@ import (
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 )
 
-// AuthzHandler serves the ext-authz (ForwardAuth) endpoint used by the
-// per-session SecurityPolicy (G2 Option B).
+// AuthzHandler serves the ext-authz (ForwardAuth) endpoint the gateway calls
+// for every request to a /s/{id} session route:
 //
-// The gateway calls /authz for every request to a /s/{id} session route. The
-// handler drives the full session auth flow:
+//  1. Read the session cookie. No/invalid/expired cookie → 302 to Authentik
+//     (with PKCE + a signed state carrying the original URL).
+//  2. Valid cookie → check the caller owns the session. Owner → 200; non-owner
+//     or unknown → 403; backend error → 503 (fail closed).
 //
-//  1. Read the session cookie from the forwarded Cookie header.
-//  2. No cookie / invalid / expired → generate PKCE, sign a state token, and
-//     return 302 to Authentik. Envoy forwards the redirect to the browser; the
-//     browser logs in and returns to /oauth2/callback.
-//  3. Valid cookie → check that the caller (cookie.sub) owns the session (id).
-//     Owner → 200 (allow). Non-owner / unknown → 403. Backend error → 503
-//     (fail closed).
-//
-// This approach is stateless (no server-side session store): the PKCE
-// code_verifier and original URL travel in the signed state parameter that
-// Authentik reflects back on the callback.
+// The flow is stateless: the PKCE code_verifier and original URL travel in the
+// signed state that Authentik reflects back on the callback.
 type AuthzHandler struct {
 	svc *k8s.SessionService
 	cfg config.Config
@@ -41,30 +34,26 @@ func NewAuthzHandler(svc *k8s.SessionService, cfg config.Config) *AuthzHandler {
 	return &AuthzHandler{svc: svc, cfg: cfg}
 }
 
-// forwardedPathHeaders are the headers an upstream proxy may use to convey the
-// original request URI, checked in priority order.
+// forwardedPathHeaders convey the original request URI, in priority order.
 var forwardedPathHeaders = []string{
 	"X-Forwarded-Uri",
 	"X-Original-Uri",
 	"X-Envoy-Original-Path",
 }
 
-// oauthNonceCookieName holds the per-login-attempt nonce that binds the
-// signed OIDC state to the browser that started the flow (CSRF protection —
-// see the Nonce field doc on auth.StateClaims). Shared between this handler
-// (sets it) and the /oauth2/callback handler (verifies + clears it).
+// oauthNonceCookieName holds the per-login-attempt nonce that binds the signed
+// OIDC state to the browser that started the flow (CSRF protection). Set here,
+// verified and cleared by the /oauth2/callback handler.
 const oauthNonceCookieName = "kubesandbox_oauth_nonce"
 
-// oauthNonceMaxAge matches the state token's own expiry (5 minutes): the
-// nonce cookie should not outlive the login attempt it belongs to.
+// oauthNonceMaxAge matches the state token's expiry: the nonce cookie should
+// not outlive the login attempt.
 const oauthNonceMaxAge = 5 * time.Minute
 
 // Check handles GET /authz and GET /authz/*.
 func (h *AuthzHandler) Check(c *gin.Context) {
-	// Resolve the original path the browser was requesting (/s/{id}/...).
 	origPath := h.originalPath(c)
 
-	// --- Step 1: Read and validate the session cookie ---
 	cookieVal, err := c.Cookie(h.cfg.SessionCookieName)
 	if err != nil || cookieVal == "" {
 		h.redirectToLogin(c, origPath)
@@ -73,15 +62,12 @@ func (h *AuthzHandler) Check(c *gin.Context) {
 
 	claims, err := auth.VerifySession(cookieVal, h.cfg.SessionSecret)
 	if err != nil {
-		// Cookie invalid or expired — send the user through login again.
 		h.redirectToLogin(c, origPath)
 		return
 	}
 
-	// --- Step 2: Ownership check ---
 	id, ok := extractSessionID(origPath)
 	if !ok {
-		// No /s/{id} in the path; deny by default.
 		c.Status(http.StatusForbidden)
 		return
 	}
@@ -93,15 +79,13 @@ func (h *AuthzHandler) Check(c *gin.Context) {
 		// Unknown, unowned, and malformed ids are indistinguishable (no leak).
 		c.Status(http.StatusForbidden)
 	default:
-		// Unexpected backend error: fail closed.
-		c.Status(http.StatusServiceUnavailable)
+		c.Status(http.StatusServiceUnavailable) // fail closed
 	}
 }
 
-// redirectToLogin generates a PKCE challenge and returns 302 → Authentik.
-// Envoy forwards the 302 to the browser, which follows the redirect to log in.
+// redirectToLogin generates a PKCE challenge and returns 302 → Authentik. Envoy
+// forwards non-2xx ext-authz responses to the browser, which follows it.
 func (h *AuthzHandler) redirectToLogin(c *gin.Context, origPath string) {
-	// Generate PKCE verifier + S256 challenge.
 	codeVerifier, err := auth.GenerateCodeVerifier()
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
@@ -109,23 +93,19 @@ func (h *AuthzHandler) redirectToLogin(c *gin.Context, origPath string) {
 	}
 	challenge := auth.CodeChallenge(codeVerifier)
 
-	// Generate a nonce binding this login attempt to the current browser: it
-	// travels both in the signed state (below) and in a cookie set on this
-	// response. /oauth2/callback requires both copies to match, which stops an
-	// attacker from handing their own valid state+code pair to a victim to get
-	// the victim's browser logged in as the attacker (OAuth login CSRF).
+	// The nonce binds this login attempt to the current browser: it travels in
+	// the signed state and in a cookie set below. /oauth2/callback requires
+	// both copies to match, stopping an attacker from replaying their own
+	// state+code pair into a victim's browser (OAuth login CSRF).
 	nonce, err := auth.GenerateNonce()
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
 
-	// The original URL is stored in the signed state so no server-side storage
-	// is needed. After login, /oauth2/callback redirects back here.
-	originalURL := h.cfg.PublicBaseURL + origPath
 	stateToken, err := auth.SignState(auth.StateClaims{
 		CodeVerifier: codeVerifier,
-		OriginalURL:  originalURL,
+		OriginalURL:  h.cfg.PublicBaseURL + origPath,
 		Nonce:        nonce,
 		Exp:          time.Now().Add(5 * time.Minute).Unix(),
 	}, h.cfg.SessionSecret)
@@ -134,10 +114,8 @@ func (h *AuthzHandler) redirectToLogin(c *gin.Context, origPath string) {
 		return
 	}
 
-	// Set the nonce cookie before the redirect. SameSite=Lax (not Strict) is
-	// required: the browser must still send this cookie when Authentik
-	// navigates it back to /oauth2/callback, which is a cross-site top-level
-	// navigation — exactly the case Lax allows and Strict would block.
+	// SameSite=Lax (not Strict): the browser must still send this cookie on
+	// Authentik's cross-site top-level navigation back to /oauth2/callback.
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     oauthNonceCookieName,
 		Value:    nonce,
@@ -149,7 +127,6 @@ func (h *AuthzHandler) redirectToLogin(c *gin.Context, origPath string) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	// Build the Authentik authorization URL.
 	authURL, err := url.Parse(h.cfg.OIDCAuthEndpoint)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
@@ -165,14 +142,12 @@ func (h *AuthzHandler) redirectToLogin(c *gin.Context, origPath string) {
 	q.Set("code_challenge_method", "S256")
 	authURL.RawQuery = q.Encode()
 
-	// Return 302 — Envoy ext-authz forwards non-2xx responses to the client,
-	// so the browser will follow this redirect to the Authentik login page.
 	c.Header("Location", authURL.String())
 	c.Status(http.StatusFound)
 }
 
-// originalPath determines the client's original request path. It prefers the
-// forwarded-URI headers a gateway sets, then falls back to this request's own
+// originalPath determines the client's original request path, preferring the
+// forwarded-URI headers a gateway sets, then falling back to this request's
 // path with any /authz mount prefix stripped.
 func (h *AuthzHandler) originalPath(c *gin.Context) string {
 	for _, hdr := range forwardedPathHeaders {
@@ -183,9 +158,8 @@ func (h *AuthzHandler) originalPath(c *gin.Context) string {
 	return strings.TrimPrefix(c.Request.URL.Path, "/authz")
 }
 
-// extractSessionID pulls the session id from a path containing an "/s/{id}"
-// segment, e.g. "/s/playground-s-1a2b3c4d/token" -> "playground-s-1a2b3c4d".
-// It returns ok=false when no such segment is present.
+// extractSessionID pulls the id from a path containing an "/s/{id}" segment,
+// e.g. "/s/playground-s-1a2b3c4d/token" -> "playground-s-1a2b3c4d".
 func extractSessionID(path string) (string, bool) {
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
@@ -198,4 +172,3 @@ func extractSessionID(path string) (string, bool) {
 	}
 	return "", false
 }
-
