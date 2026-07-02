@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, TerminalChrome } from "@/components/ui/card";
+import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useDeleteSession } from "@/hooks/useSessions";
 import { terminalUrl } from "@/config";
@@ -12,6 +14,7 @@ import type { Session } from "@/lib/schemas";
  *  readout in mono, actions along the bottom. */
 export function SessionCard({ session }: { session: Session }) {
   const del = useDeleteSession();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const left = timeLeft(session.expiresAt);
 
   return (
@@ -74,13 +77,21 @@ export function SessionCard({ session }: { session: Session }) {
           <Button
             size="sm"
             variant="danger"
-            onClick={() => del.mutate(session.id)}
+            onClick={() => setConfirmingDelete(true)}
             disabled={del.isPending}
           >
             {del.isPending ? "Deleting…" : "Delete"}
           </Button>
         </div>
       </div>
+
+      {confirmingDelete && (
+        <ConfirmDeleteDialog
+          session={session}
+          onConfirm={() => del.mutate(session.id)}
+          onClose={() => setConfirmingDelete(false)}
+        />
+      )}
     </Card>
   );
 }
