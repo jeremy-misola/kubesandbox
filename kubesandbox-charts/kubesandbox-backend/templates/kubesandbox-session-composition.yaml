@@ -564,6 +564,21 @@ spec:
                   string:
                     fmt: "%s-%s-httproute"
                 toFieldPath: metadata.name
+              # The inner HTTPRoute manifest name must be per-session too. Only
+              # the Object name was patched before, so every session's Object
+              # managed ONE HTTPRoute named "shell" in the shared kubesandbox
+              # namespace — with 2+ concurrent sessions their reconcile loops
+              # overwrote each other's path/backendRef in a tug-of-war, and
+              # /s/{id} intermittently fell through to the frontend SPA (404).
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                  strategy: string
+                  string:
+                    fmt: "shell-%s-%s"
+                toFieldPath: spec.forProvider.manifest.metadata.name
               # The HTTPRoute itself is always in the kubesandbox namespace (fixed);
               # only the backendRef namespace is per-session.
               - type: CombineFromComposite
