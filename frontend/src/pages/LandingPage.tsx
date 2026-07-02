@@ -8,10 +8,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { prefersReducedMotion } from "@/lib/utils";
 
 const TERMINAL_LINES = [
-  { prompt: true, text: "kubesandbox create --profile standard --ttl 60m" },
-  { prompt: false, text: "✓ vcluster provisioned in 12s" },
+  { prompt: true, text: "kubesandbox create --ttl 60m" },
+  { prompt: false, text: "✓ sandbox handed over in 0.4s (pre-warmed)" },
   { prompt: true, text: "kubectl get nodes" },
-  { prompt: false, text: "NAME        STATUS   AGE\nsandbox-0   Ready    12s" },
+  { prompt: false, text: "NAME        STATUS   AGE\nsandbox-0   Ready    2s" },
   { prompt: true, text: "", cursor: true },
 ];
 

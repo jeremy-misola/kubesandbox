@@ -209,6 +209,19 @@ ConfigMap verbs for markers.
 **Tests** — `assign_test.go`, `pool_test.go` (new), `cleanup_test.go`
 (extended). `go test ./...` and `-race` on the concurrency tests pass.
 
+**Frontend (SPA)** — adapted to the new API contract: `profile` removed from
+schemas/request/UI (`ProfilePicker` deleted; the create dialog's one knob is
+the lifetime, with the uniform spec stated up front); `POST /sessions` handled
+as a discriminated result (`201 created` / `202 queued`); new queue plumbing
+(`api.getQueueStatus`, `streamQueueEvents` fetch-stream SSE, `useQueueStatus`
+/ `useQueueWatcher` hooks) with polling fallback; the dashboard renders a
+live "you're #N in line" card (the position is the determinate progress
+indicator per design-principles §1) that swaps to the sandbox card on
+hand-over, survives page reloads (mount-time `GET /api/queue`), and surfaces
+a terminal queue error inline. Copy updated everywhere the old
+minutes-of-provisioning reality leaked through (landing hero, create dialog,
+detail-page banner). `tsc --noEmit` and `vite build` pass.
+
 ## 6. Operational notes & known limits
 
 - **Deploy checklist:** (1) build/push the backend image; (2) ship the chart

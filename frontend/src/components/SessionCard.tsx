@@ -26,8 +26,8 @@ export function SessionCard({ session }: { session: Session }) {
 
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-baseline justify-between gap-2">
-          <h3 className="font-display text-base font-semibold capitalize tracking-tight">
-            {session.profile} sandbox
+          <h3 className="font-display text-base font-semibold tracking-tight">
+            Kubernetes sandbox
           </h3>
           {left && (
             <span className="shrink-0 font-mono text-xs text-primary">

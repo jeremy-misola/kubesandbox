@@ -86,9 +86,18 @@ export function useCreateSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: CreateSessionRequest) => api.createSession(body),
-    onSuccess: (session) => {
-      qc.setQueryData(queryKeys.session(session.id), session);
-      qc.invalidateQueries({ queryKey: queryKeys.sessions });
+    onSuccess: (result) => {
+      if (result.outcome === "created") {
+        // Hot-pool hand-over: the sandbox already exists and is usually
+        // Ready — seed both caches so the card renders instantly.
+        qc.setQueryData(queryKeys.session(result.session.id), result.session);
+        qc.invalidateQueries({ queryKey: queryKeys.sessions });
+        qc.setQueryData(queryKeys.queue, null);
+      } else {
+        // Every warm sandbox is taken: we're in line. The queue watcher
+        // (useQueueWatcher on the dashboard) takes over from here.
+        qc.setQueryData(queryKeys.queue, result.queue);
+      }
     },
   });
 }

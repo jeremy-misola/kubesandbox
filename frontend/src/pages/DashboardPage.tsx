@@ -4,7 +4,9 @@ import { animate } from "animejs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, TerminalChrome } from "@/components/ui/card";
 import { CreateSessionDialog } from "@/components/CreateSessionDialog";
+import { QueueCard } from "@/components/QueueCard";
 import { SessionCard } from "@/components/SessionCard";
+import { useQueueStatus, useQueueWatcher } from "@/hooks/useQueue";
 import { useSessions } from "@/hooks/useSessions";
 import { prefersReducedMotion } from "@/lib/utils";
 
@@ -38,6 +40,10 @@ function SessionCardSkeleton() {
 export function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const { data: sessions, isLoading, isError, error, refetch } = useSessions();
+  // Warm-pool queue: restores the "in line" view on reload and follows the
+  // live stream until a sandbox is handed over (or the line fails).
+  const { data: queued } = useQueueStatus();
+  const { queueError } = useQueueWatcher();
 
   // The backend enforces a single session per user; take the first defensively.
   const session = sessions?.[0];
@@ -72,6 +78,11 @@ export function DashboardPage() {
               [active]
             </span>
           )}
+          {!session && queued && (
+            <span className="ml-2 align-middle font-mono text-sm font-normal text-warning">
+              [in line]
+            </span>
+          )}
         </h1>
       </div>
 
@@ -98,7 +109,14 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {!isLoading && !isError && !session && (
+      {/* In line for a sandbox: the queue position is the progress. */}
+      {!isLoading && !isError && !session && queued && (
+        <div className="mx-auto max-w-xl">
+          <QueueCard queue={queued} />
+        </div>
+      )}
+
+      {!isLoading && !isError && !session && !queued && (
         <Card className="overflow-hidden p-0">
           <TerminalChrome title="kubesandbox — empty" />
           <div className="px-6 py-12 text-center">
@@ -109,9 +127,20 @@ export function DashboardPage() {
                 no sandbox running — nothing is costing anything
               </span>
             </p>
+            {queueError && (
+              <p
+                role="alert"
+                className="mx-auto mt-4 max-w-sm rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                Your place in line ended: {queueError}
+              </p>
+            )}
             <Button className="mt-6" onClick={() => setCreating(true)}>
               Create your sandbox
             </Button>
+            <p className="mt-3 font-mono text-xs text-muted-foreground/70">
+              pre-provisioned &amp; ready in seconds
+            </p>
           </div>
         </Card>
       )}

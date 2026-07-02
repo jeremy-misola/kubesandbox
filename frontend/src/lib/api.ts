@@ -3,9 +3,12 @@ import { getAccessToken } from "@/lib/auth";
 import {
   apiErrorSchema,
   createSessionRequestSchema,
+  queueStatusSchema,
   sessionListSchema,
   sessionSchema,
   type CreateSessionRequest,
+  type CreateSessionResult,
+  type QueueStatus,
   type Session,
 } from "@/lib/schemas";
 
@@ -69,13 +72,32 @@ export const api = {
     return sessionSchema.parse(await res.json());
   },
 
-  async createSession(body: CreateSessionRequest): Promise<Session> {
+  /**
+   * POST /sessions against the hot pool: 201 hands over an already-running
+   * sandbox; 202 means every warm sandbox is taken and the caller is queued
+   * (follow up with getQueueStatus / streamQueueEvents).
+   */
+  async createSession(body: CreateSessionRequest): Promise<CreateSessionResult> {
     const payload = createSessionRequestSchema.parse(body);
     const res = await request("/sessions", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    return sessionSchema.parse(await res.json());
+    if (res.status === 202) {
+      return { outcome: "queued", queue: queueStatusSchema.parse(await res.json()) };
+    }
+    return { outcome: "created", session: sessionSchema.parse(await res.json()) };
+  },
+
+  /** GET /api/queue — the caller's place in line, or null when not queued. */
+  async getQueueStatus(): Promise<QueueStatus | null> {
+    try {
+      const res = await request("/queue");
+      return queueStatusSchema.parse(await res.json());
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
   },
 
   async deleteSession(id: string): Promise<void> {
@@ -90,23 +112,25 @@ export type SessionEvent =
   | { type: "deleted"; session: Session }
   | { type: "error"; message: string };
 
+export type QueueEvent =
+  | { type: "queued"; position: number }
+  | { type: "assigned"; session: Session }
+  | { type: "error"; message: string };
+
 /**
- * Streams GET /api/sessions/:id/events, parsing SSE frames manually so we can
- * attach the bearer token. Calls `onEvent` for each frame until `signal` aborts
- * or the stream ends. Callers should implement a polling fallback on throw.
+ * Shared fetch-stream SSE reader: yields (event, data) frames until the
+ * signal aborts or the stream ends. Callers implement a polling fallback on
+ * throw (design-principles §7).
  */
-export async function streamSessionEvents(
-  id: string,
-  onEvent: (e: SessionEvent) => void,
+async function streamSSE(
+  path: string,
+  onFrame: (event: string, data: string) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(
-    `${config.apiBase}/sessions/${encodeURIComponent(id)}/events`,
-    {
-      headers: { ...(await authHeaders()), Accept: "text/event-stream" },
-      signal,
-    },
-  );
+  const res = await fetch(`${config.apiBase}${path}`, {
+    headers: { ...(await authHeaders()), Accept: "text/event-stream" },
+    signal,
+  });
   if (!res.ok) throw await toApiError(res);
   if (!res.body) throw new Error("no response body for SSE stream");
 
@@ -124,37 +148,83 @@ export async function streamSessionEvents(
     while ((sep = buffer.indexOf("\n\n")) !== -1) {
       const frame = buffer.slice(0, sep);
       buffer = buffer.slice(sep + 2);
-      const parsed = parseFrame(frame);
-      if (parsed) onEvent(parsed);
+
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith(":")) continue; // heartbeat / comment
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      }
+      if (dataLines.length > 0) onFrame(event, dataLines.join("\n"));
     }
   }
 }
 
-function parseFrame(frame: string): SessionEvent | null {
-  let event = "message";
-  const dataLines: string[] = [];
-  for (const line of frame.split("\n")) {
-    if (line.startsWith(":")) continue; // heartbeat / comment
-    if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+function parseErrorData(data: string, fallback: string): string {
+  try {
+    return (JSON.parse(data) as { message?: string }).message ?? fallback;
+  } catch {
+    return fallback;
   }
-  if (dataLines.length === 0) return null;
-  const data = dataLines.join("\n");
+}
 
-  if (event === "error") {
-    let message = "stream error";
-    try {
-      message = (JSON.parse(data) as { message?: string }).message ?? message;
-    } catch {
-      /* keep default */
-    }
-    return { type: "error", message };
-  }
+/** Streams GET /api/sessions/:id/events — the session's lifecycle. */
+export async function streamSessionEvents(
+  id: string,
+  onEvent: (e: SessionEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  await streamSSE(
+    `/sessions/${encodeURIComponent(id)}/events`,
+    (event, data) => {
+      if (event === "error") {
+        onEvent({ type: "error", message: parseErrorData(data, "stream error") });
+        return;
+      }
+      const session = sessionSchema.safeParse(JSON.parse(data));
+      if (!session.success) return;
+      onEvent({
+        type: event === "deleted" ? "deleted" : "update",
+        session: session.data,
+      });
+    },
+    signal,
+  );
+}
 
-  const session = sessionSchema.safeParse(JSON.parse(data));
-  if (!session.success) return null;
-  return {
-    type: event === "deleted" ? "deleted" : "update",
-    session: session.data,
-  };
+/**
+ * Streams GET /api/queue/events — live queue progress. Events: "queued"
+ * (position updates) then a terminal "assigned" (with the session) or
+ * "error". The backend closes the stream after the terminal event.
+ */
+export async function streamQueueEvents(
+  onEvent: (e: QueueEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  await streamSSE(
+    "/queue/events",
+    (event, data) => {
+      if (event === "error") {
+        onEvent({ type: "error", message: parseErrorData(data, "queue stream error") });
+        return;
+      }
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        return;
+      }
+      const obj = payload as { position?: number; session?: unknown };
+      if (event === "assigned") {
+        const session = sessionSchema.safeParse(obj.session);
+        if (session.success) onEvent({ type: "assigned", session: session.data });
+        return;
+      }
+      if (event === "queued" && typeof obj.position === "number") {
+        onEvent({ type: "queued", position: obj.position });
+      }
+    },
+    signal,
+  );
 }

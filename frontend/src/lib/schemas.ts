@@ -2,18 +2,15 @@ import { z } from "zod";
 
 // Runtime validation of the /api boundary. TS types are derived from the schemas
 // so the client and the wire stay in sync. Mirrors backend models.Session.
-
-export const profileSchema = z.enum(["starter", "standard", "advanced"]);
-export type Profile = z.infer<typeof profileSchema>;
-
-/** Fixed resource shapes the backend applies per profile (display only). */
-export const PROFILE_RESOURCES: Record<Profile, { cpu: string; memory: string }> = {
-  starter: { cpu: "250m", memory: "256Mi" },
-  standard: { cpu: "500m", memory: "512Mi" },
-  advanced: { cpu: "1", memory: "1Gi" },
-};
+//
+// Single sandbox type (rev 20): the starter/standard/advanced profiles are
+// gone — every sandbox is identical, pre-provisioned in a hot pool, and
+// handed over on create. The only knob left is the lifetime.
 
 export const TTL = { min: 15, max: 1440, default: 60 } as const;
+
+/** The one uniform shape every sandbox gets (display only). */
+export const SANDBOX_RESOURCES = { cpu: "500m", memory: "512Mi" } as const;
 
 export const resourcesSchema = z.object({
   cpu: z.string(),
@@ -26,7 +23,6 @@ export const sessionSchema = z.object({
   namespace: z.string(),
   tenantRef: z.string(),
   ownerRef: z.string(),
-  profile: z.string(),
   ttlMinutes: z.number(),
   workspaceImage: z.string(),
   starterLabRef: z.string().optional(),
@@ -46,12 +42,27 @@ export const sessionListSchema = z.object({
 });
 
 export const createSessionRequestSchema = z.object({
-  profile: profileSchema,
   ttlMinutes: z.number().int().min(TTL.min).max(TTL.max).optional(),
-  workspaceImage: z.string().optional(),
-  starterLabRef: z.string().optional(),
 });
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
+
+// ---- warm-pool queue (backend Phase E) --------------------------------------
+//
+// POST /sessions returns 202 + QueueStatus when every warm sandbox is taken.
+// The caller is held in a FIFO line; GET /api/queue polls the position and
+// GET /api/queue/events streams it (see api.streamQueueEvents).
+
+export const queueStatusSchema = z.object({
+  status: z.literal("queued"),
+  position: z.number().int().min(1),
+  message: z.string().optional(),
+});
+export type QueueStatus = z.infer<typeof queueStatusSchema>;
+
+/** Result of POST /sessions: an immediate hand-over or a place in line. */
+export type CreateSessionResult =
+  | { outcome: "created"; session: Session }
+  | { outcome: "queued"; queue: QueueStatus };
 
 export const apiErrorSchema = z.object({
   error: z.string(),

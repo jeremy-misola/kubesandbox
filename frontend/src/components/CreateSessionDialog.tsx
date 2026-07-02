@@ -3,11 +3,10 @@ import { animate } from "animejs";
 
 import { Button } from "@/components/ui/button";
 import { TerminalChrome } from "@/components/ui/card";
-import { ProfilePicker } from "@/components/ProfilePicker";
 import { useCreateSession } from "@/hooks/useSessions";
 import { ApiError } from "@/lib/api";
 import { prefersReducedMotion } from "@/lib/utils";
-import { TTL, type Profile } from "@/lib/schemas";
+import { SANDBOX_RESOURCES, TTL } from "@/lib/schemas";
 
 function formatTtl(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
@@ -16,8 +15,13 @@ function formatTtl(minutes: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
+/**
+ * One decision, one dialog: sandboxes are uniform and pre-provisioned (hot
+ * pool, rev 20), so the only thing to choose is the lifetime. Create either
+ * hands over a running sandbox instantly (201) or places the user in line
+ * (202) — both settle on the dashboard, so the dialog closes on success.
+ */
 export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
-  const [profile, setProfile] = useState<Profile>("standard");
   const [ttl, setTtl] = useState<number>(TTL.default);
   const create = useCreateSession();
 
@@ -71,7 +75,9 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
   }, [create.isPending, requestClose]);
 
   const submit = () => {
-    create.mutate({ profile, ttlMinutes: ttl }, { onSuccess: requestClose });
+    // Both outcomes (created / queued) render on the dashboard, which sits
+    // right behind this dialog — close and let it take over.
+    create.mutate({ ttlMinutes: ttl }, { onSuccess: requestClose });
   };
 
   const errorMsg =
@@ -80,7 +86,7 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
         ? "You already have a sandbox (it may still be cleaning up). Delete it or wait a moment before creating a new one."
         : create.error.message
       : create.error
-        ? "Could not create session. Please try again."
+        ? "Could not create the sandbox. Please try again."
         : null;
 
   const fillPct = ((ttl - TTL.min) / (TTL.max - TTL.min)) * 100;
@@ -110,13 +116,27 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
             New sandbox
           </h2>
           <p className="mb-5 mt-1 text-sm text-muted-foreground">
-            Pick a profile and lifetime. Your cluster provisions in the background.
+            Sandboxes are kept running and handed over on request — yours is
+            usually ready the moment you click create.
           </p>
 
-          <label className="mb-2 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-            Profile
-          </label>
-          <ProfilePicker value={profile} onChange={setProfile} />
+          {/* The uniform spec, stated up front — no tiers to pick from. */}
+          <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border/70 bg-border/70 font-mono text-xs">
+            {(
+              [
+                ["cluster", "private vcluster"],
+                ["cpu", SANDBOX_RESOURCES.cpu],
+                ["mem", SANDBOX_RESOURCES.memory],
+              ] as const
+            ).map(([k, v]) => (
+              <div key={k} className="bg-card px-2.5 py-1.5">
+                <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {k}
+                </dt>
+                <dd className="mt-0.5 text-foreground">{v}</dd>
+              </div>
+            ))}
+          </dl>
 
           <div className="mb-2 mt-5 flex items-baseline justify-between">
             <label
@@ -141,7 +161,7 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
           />
           <div className="mt-1 flex justify-between font-mono text-[10px] text-muted-foreground">
             <span>{TTL.min}m</span>
-            <span>auto-deletes when it expires</span>
+            <span>the clock starts now — auto-deletes at zero</span>
             <span>{formatTtl(TTL.max)}</span>
           </div>
 

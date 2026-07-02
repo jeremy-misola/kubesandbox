@@ -94,9 +94,9 @@ export function ConfirmDeleteDialog({
         <div className="p-5">
           <h2
             id="confirm-delete-title"
-            className="font-display text-lg font-semibold capitalize tracking-tight"
+            className="font-display text-lg font-semibold tracking-tight"
           >
-            Delete {session.profile} sandbox?
+            Delete this sandbox?
           </h2>
           <p id="confirm-delete-desc" className="mt-2 text-sm text-muted-foreground">
             This destroys{" "}

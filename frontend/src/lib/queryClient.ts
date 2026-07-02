@@ -19,4 +19,5 @@ export const queryClient = new QueryClient({
 export const queryKeys = {
   sessions: ["sessions"] as const,
   session: (id: string) => ["session", id] as const,
+  queue: ["queue"] as const,
 };

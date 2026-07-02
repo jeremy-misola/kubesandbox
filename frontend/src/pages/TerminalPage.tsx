@@ -52,8 +52,8 @@ export function TerminalPage() {
           >
             ← session
           </Link>
-          <h1 className="font-display text-base font-semibold capitalize tracking-tight">
-            {session ? `${session.profile} sandbox` : `s/${id}`}
+          <h1 className="font-display text-base font-semibold tracking-tight">
+            {session ? "Kubernetes sandbox" : `s/${id}`}
           </h1>
         </div>
         <div className="flex items-center gap-3">

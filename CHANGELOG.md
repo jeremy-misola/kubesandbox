@@ -33,6 +33,13 @@ the shell pod (fixed: `watch: true`). Orchestration itself is ~10 s. Expected
 refill after fixes: ~2–4 min. All test resources torn down; unit tests incl.
 concurrency (-race) pass. Not yet deployed — see docs/11 §6 deploy checklist.
 
+Frontend adapted to the new contract in the same rev: profiles removed from
+schemas and UI (ProfilePicker deleted; lifetime is the only knob), POST
+/sessions handled as created|queued, and a live queue view added (SSE over
+/api/queue/events with polling fallback + reload recovery via GET /api/queue)
+— the dashboard shows "you're #N in line" and swaps to the sandbox card on
+hand-over. Copy no longer promises minutes-long provisioning anywhere.
+
 ## rev 19 — 2026-07-02 — Embedded terminal: ttyd now runs inside the SPA
 
 The terminal no longer hands off to a bare ttyd tab — it renders inside the

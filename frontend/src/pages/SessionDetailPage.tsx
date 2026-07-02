@@ -61,7 +61,6 @@ export function SessionDetailPage() {
 
   const rows: Array<[string, string]> = [
     ["id", session.id],
-    ["profile", session.profile],
     ["resources", `${session.resources.cpu} CPU · ${session.resources.memory}`],
     ["ttl", `${session.ttlMinutes} min`],
     ["phase", session.phase],
@@ -88,8 +87,8 @@ export function SessionDetailPage() {
 
         <div className="p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h1 className="font-display text-xl font-bold capitalize tracking-tight">
-              {session.profile} sandbox
+            <h1 className="font-display text-xl font-bold tracking-tight">
+              Kubernetes sandbox
             </h1>
             {timeLeft(session.expiresAt) && (
               <span className="font-mono text-sm text-primary">
@@ -124,7 +123,8 @@ export function SessionDetailPage() {
                 className="dot-breathe mt-1 h-2 w-2 shrink-0 rounded-full bg-warning text-warning"
               />
               <p className="text-sm text-warning/90">
-                Provisioning — vcluster cold-boot can take a few minutes.{" "}
+                Getting your sandbox ready — usually instant, a fresh build can
+                take a few minutes.{" "}
                 <span className="text-warning/70">
                   This page updates live; the terminal button unlocks the moment
                   your workspace is ready.
