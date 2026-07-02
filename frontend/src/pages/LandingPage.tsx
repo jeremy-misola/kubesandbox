@@ -21,13 +21,6 @@ const FEATURES: Array<[string, string, string]> = [
   ["instant", "Browser terminal", "kubectl is ready in a tab. No kubeconfig, no local install."],
 ];
 
-/** A real sequence, so numbered steps carry information. */
-const STEPS: Array<[string, string, string]> = [
-  ["01", "Sign in", "Authenticate once through Authentik SSO — no account setup beyond that."],
-  ["02", "Pick a profile & lifetime", "Choose starter, standard, or advanced resources and a TTL from 15 minutes to 24 hours."],
-  ["03", "Open your terminal", "Watch provisioning live; the browser terminal unlocks the moment your cluster is ready."],
-];
-
 export function LandingPage() {
   const { isAuthenticated, loading, user, login } = useAuth();
   const location = useLocation();
@@ -145,46 +138,6 @@ export function LandingPage() {
               <p className="mt-1 text-sm leading-snug text-muted-foreground">{body}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section id="how-it-works" aria-label="How it works" className="mt-16 scroll-mt-24">
-        <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-primary">
-          $ how it works
-        </p>
-        <h2 className="mt-2 font-display text-2xl font-bold tracking-tight">
-          Three steps to a running cluster
-        </h2>
-        <ol className="mt-6 grid gap-3 sm:grid-cols-3">
-          {STEPS.map(([num, title, body]) => (
-            <li
-              key={num}
-              className="relative rounded-lg border border-border/70 bg-card/60 p-4 transition-colors hover:border-primary/25"
-            >
-              <span
-                aria-hidden
-                className="font-mono text-2xl font-semibold text-primary/30"
-              >
-                {num}
-              </span>
-              <h3 className="mt-2 font-display text-sm font-semibold tracking-tight">
-                {title}
-              </h3>
-              <p className="mt-1 text-sm leading-snug text-muted-foreground">{body}</p>
-            </li>
-          ))}
-        </ol>
-        <div className="mt-8">
-          {isAuthenticated ? (
-            <Link to="/dashboard">
-              <Button variant="secondary">Go to your sandboxes →</Button>
-            </Link>
-          ) : (
-            <Button variant="secondary" disabled={loading} onClick={() => login(returnTo)}>
-              Sign in to try it
-            </Button>
-          )}
         </div>
       </section>
     </div>

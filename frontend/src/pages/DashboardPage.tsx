@@ -102,22 +102,15 @@ export function DashboardPage() {
       {!isLoading && !isError && sessions && sessions.length === 0 && (
         <Card className="overflow-hidden p-0">
           <TerminalChrome title="kubesandbox — empty" />
-          <div className="px-6 py-14 text-center">
+          <div className="px-6 py-12 text-center">
             <p className="font-mono text-sm text-muted-foreground">
               <span className="text-primary">❯</span> kubesandbox list
               <br />
               <span className="text-muted-foreground/70">
-                no sandboxes found — nothing is running (or costing anything)
+                no sandboxes running — nothing is costing anything
               </span>
             </p>
-            <p className="mt-6 font-display text-lg font-semibold tracking-tight">
-              Spin up your first cluster
-            </p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              Pick a resource profile and a lifetime — it's ready in seconds and
-              deletes itself when the timer ends.
-            </p>
-            <Button className="mt-5" onClick={() => setCreating(true)}>
+            <Button className="mt-6" onClick={() => setCreating(true)}>
               Create your first sandbox
             </Button>
           </div>

@@ -50,12 +50,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
           {!isAuthenticated && (
             <nav className="flex items-center gap-1 sm:gap-2" aria-label="Main">
-              {(
-                [
-                  ["Features", "/#features"],
-                  ["How it works", "/#how-it-works"],
-                ] as const
-              ).map(([label, href]) => (
+              {([["Features", "/#features"]] as const).map(([label, href]) => (
                 <a
                   key={href}
                   href={href}
