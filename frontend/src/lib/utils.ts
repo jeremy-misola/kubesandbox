@@ -3,6 +3,14 @@ export function cn(...classes: Array<string | false | null | undefined>): string
   return classes.filter(Boolean).join(" ");
 }
 
+/** True when the user asked the OS for less motion — gates anime.js effects. */
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 /** Relative "time left" until an RFC3339 timestamp, e.g. "42m left". */
 export function timeLeft(expiresAt?: string): string | null {
   if (!expiresAt) return null;

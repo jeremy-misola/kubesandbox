@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { TerminalChrome } from "@/components/ui/card";
 import { terminalUrl } from "@/config";
 
 // The terminal itself (/s/{id}) is served by the BACKEND, not the SPA. Its auth
@@ -19,18 +20,34 @@ export function TerminalPage() {
   }, [url]);
 
   return (
-    <div className="flex min-h-[50vh] flex-col items-center justify-center text-center">
-      <h1 className="text-xl font-semibold">Opening your terminal…</h1>
-      <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        The terminal opens in a new tab. If nothing happened, your browser may
-        have blocked the popup — use the button below.
-      </p>
-      <a className="mt-4" href={url} target="_blank" rel="noreferrer">
-        <Button>Open terminal</Button>
-      </a>
-      <Link to={`/dashboard/${id}`} className="mt-3 text-sm text-primary hover:underline">
-        Back to session
-      </Link>
+    <div className="flex min-h-[55vh] flex-col items-center justify-center">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-card shadow-card">
+        <TerminalChrome title={`s/${id}`} />
+        <div className="p-6 text-center">
+          <p className="font-mono text-sm">
+            <span className="text-primary">❯</span> open terminal
+            <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-primary align-middle" />
+          </p>
+          <h1 className="mt-4 font-display text-xl font-bold tracking-tight">
+            Opening your terminal…
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The terminal opens in a new tab. If nothing happened, your browser
+            blocked the popup — use the button below.
+          </p>
+          <a className="mt-5 inline-block" href={url} target="_blank" rel="noreferrer">
+            <Button>Open terminal</Button>
+          </a>
+          <div className="mt-4">
+            <Link
+              to={`/dashboard/${id}`}
+              className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              ← back to session
+            </Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

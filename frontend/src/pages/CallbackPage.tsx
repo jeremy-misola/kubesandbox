@@ -25,14 +25,28 @@ export function CallbackPage() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center text-center">
       {error ? (
-        <div>
-          <p className="text-red-400">Sign-in failed: {error}</p>
-          <a href="/" className="mt-2 inline-block text-primary hover:underline">
-            Back to sign in
+        <div className="max-w-md rounded-lg border border-danger/30 bg-danger/5 p-6">
+          <p className="font-mono text-[11px] uppercase tracking-widest text-danger">
+            auth error
+          </p>
+          <p className="mt-2 text-sm text-foreground">Sign-in failed: {error}</p>
+          <a
+            href="/"
+            className="mt-4 inline-block rounded font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            ← back to sign in
           </a>
         </div>
       ) : (
-        <p className="text-muted-foreground">Completing sign-in…</p>
+        <div className="flex flex-col items-center gap-3">
+          <i
+            aria-hidden
+            className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary"
+          />
+          <p className="font-mono text-xs text-muted-foreground">
+            completing sign-in…
+          </p>
+        </div>
       )}
     </div>
   );

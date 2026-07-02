@@ -1,34 +1,88 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
+
+/** Hexagonal node mark — a nod to the k8s heptagon, drawn as a live cluster. */
+function BrandMark() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6 text-primary"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      aria-hidden
+    >
+      <path d="M12 2.5 20.2 7v10L12 21.5 3.8 17V7L12 2.5Z" />
+      <path d="M12 8v4l3 2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function Layout({ children }: { children: ReactNode }) {
   const { isAuthenticated, user, logout } = useAuth();
+  const { pathname } = useLocation();
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
+    <div className="relative flex min-h-screen flex-col text-foreground">
+      {/* Signature ambient layer — sits behind everything. */}
+      <div className="aurora" aria-hidden>
+        <div className="aurora-grid" />
+      </div>
+
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <Link to="/" className="text-lg font-semibold tracking-tight">
-            Kube<span className="text-primary">Sandbox</span>
+          <Link
+            to="/"
+            className="group flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <BrandMark />
+            <span className="font-display text-lg font-semibold tracking-tight">
+              kube<span className="text-primary">sandbox</span>
+            </span>
+            <span className="mt-0.5 hidden font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:inline">
+              ephemeral clusters
+            </span>
           </Link>
+
           {isAuthenticated && (
-            <div className="flex items-center gap-3">
-              <Link to="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
-                Dashboard
+            <nav className="flex items-center gap-1 sm:gap-3">
+              <Link
+                to="/dashboard"
+                className={cn(
+                  "rounded-md px-2 py-1 font-mono text-xs transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  pathname.startsWith("/dashboard")
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                ~/dashboard
               </Link>
-              <span className="text-sm text-muted-foreground">
-                {user?.profile?.email ?? user?.profile?.name}
+              <span className="hidden items-center gap-2 border-l border-border pl-3 sm:flex">
+                <i className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+                <span className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
+                  {user?.profile?.email ?? user?.profile?.name}
+                </span>
               </span>
               <Button variant="ghost" size="sm" onClick={() => logout()}>
                 Sign out
               </Button>
-            </div>
+            </nav>
           )}
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
+
+      <footer className="border-t border-border/60 py-4">
+        <p className="mx-auto max-w-5xl px-4 font-mono text-[11px] text-muted-foreground/70">
+          sandboxes are ephemeral — everything is deleted when the timer runs out
+        </p>
+      </footer>
     </div>
   );
 }

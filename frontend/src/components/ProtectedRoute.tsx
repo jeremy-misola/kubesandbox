@@ -9,8 +9,14 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
-        Loading…
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
+        <i
+          aria-hidden
+          className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary"
+        />
+        <p className="font-mono text-xs text-muted-foreground">
+          checking credentials…
+        </p>
       </div>
     );
   }
