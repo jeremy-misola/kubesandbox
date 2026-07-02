@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLayoutEffect, useRef } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { animate, stagger } from "animejs";
 
 import { Button } from "@/components/ui/button";
@@ -21,15 +21,17 @@ const FEATURES: Array<[string, string, string]> = [
   ["instant", "Browser terminal", "kubectl is ready in a tab. No kubeconfig, no local install."],
 ];
 
+/** A real sequence, so numbered steps carry information. */
+const STEPS: Array<[string, string, string]> = [
+  ["01", "Sign in", "Authenticate once through Authentik SSO — no account setup beyond that."],
+  ["02", "Pick a profile & lifetime", "Choose starter, standard, or advanced resources and a TTL from 15 minutes to 24 hours."],
+  ["03", "Open your terminal", "Watch provisioning live; the browser terminal unlocks the moment your cluster is ready."],
+];
+
 export function LandingPage() {
-  const { isAuthenticated, loading, login } = useAuth();
-  const navigate = useNavigate();
+  const { isAuthenticated, loading, user, login } = useAuth();
   const location = useLocation();
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
-
-  useEffect(() => {
-    if (isAuthenticated) navigate("/dashboard", { replace: true });
-  }, [isAuthenticated, navigate]);
 
   const heroRef = useRef<HTMLDivElement>(null);
 
@@ -81,12 +83,25 @@ export function LandingPage() {
             timer runs out.
           </p>
           <div data-hero-block className="mt-7 flex items-center gap-4">
-            <Button disabled={loading} onClick={() => login(returnTo)}>
-              Sign in to get started
-            </Button>
-            <span className="font-mono text-xs text-muted-foreground">
-              via Authentik SSO
-            </span>
+            {isAuthenticated ? (
+              <>
+                <Link to="/dashboard">
+                  <Button>Open dashboard →</Button>
+                </Link>
+                <span className="max-w-[220px] truncate font-mono text-xs text-muted-foreground">
+                  signed in as {user?.profile?.email ?? user?.profile?.name}
+                </span>
+              </>
+            ) : (
+              <>
+                <Button disabled={loading} onClick={() => login(returnTo)}>
+                  Sign in to get started
+                </Button>
+                <span className="font-mono text-xs text-muted-foreground">
+                  via Authentik SSO
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -113,23 +128,65 @@ export function LandingPage() {
       </div>
 
       {/* Feature strip */}
-      <div className="mt-16 grid gap-3 sm:grid-cols-3">
-        {FEATURES.map(([tag, title, body]) => (
-          <div
-            key={tag}
-            data-hero-block
-            className="rounded-lg border border-border/70 bg-card/60 p-4 transition-colors hover:border-primary/25"
-          >
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
-              {tag}
-            </p>
-            <h2 className="mt-1.5 font-display text-sm font-semibold tracking-tight">
-              {title}
-            </h2>
-            <p className="mt-1 text-sm leading-snug text-muted-foreground">{body}</p>
-          </div>
-        ))}
-      </div>
+      <section id="features" aria-label="Features" className="mt-16 scroll-mt-24">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {FEATURES.map(([tag, title, body]) => (
+            <div
+              key={tag}
+              data-hero-block
+              className="rounded-lg border border-border/70 bg-card/60 p-4 transition-colors hover:border-primary/25"
+            >
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+                {tag}
+              </p>
+              <h2 className="mt-1.5 font-display text-sm font-semibold tracking-tight">
+                {title}
+              </h2>
+              <p className="mt-1 text-sm leading-snug text-muted-foreground">{body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how-it-works" aria-label="How it works" className="mt-16 scroll-mt-24">
+        <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-primary">
+          $ how it works
+        </p>
+        <h2 className="mt-2 font-display text-2xl font-bold tracking-tight">
+          Three steps to a running cluster
+        </h2>
+        <ol className="mt-6 grid gap-3 sm:grid-cols-3">
+          {STEPS.map(([num, title, body]) => (
+            <li
+              key={num}
+              className="relative rounded-lg border border-border/70 bg-card/60 p-4 transition-colors hover:border-primary/25"
+            >
+              <span
+                aria-hidden
+                className="font-mono text-2xl font-semibold text-primary/30"
+              >
+                {num}
+              </span>
+              <h3 className="mt-2 font-display text-sm font-semibold tracking-tight">
+                {title}
+              </h3>
+              <p className="mt-1 text-sm leading-snug text-muted-foreground">{body}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-8">
+          {isAuthenticated ? (
+            <Link to="/dashboard">
+              <Button variant="secondary">Go to your sandboxes →</Button>
+            </Link>
+          ) : (
+            <Button variant="secondary" disabled={loading} onClick={() => login(returnTo)}>
+              Sign in to try it
+            </Button>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

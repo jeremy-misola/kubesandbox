@@ -23,7 +23,7 @@ function BrandMark() {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, loading, user, login, logout } = useAuth();
   const { pathname } = useLocation();
 
   return (
@@ -48,8 +48,35 @@ export function Layout({ children }: { children: ReactNode }) {
             </span>
           </Link>
 
+          {!isAuthenticated && (
+            <nav className="flex items-center gap-1 sm:gap-2" aria-label="Main">
+              {(
+                [
+                  ["Features", "/#features"],
+                  ["How it works", "/#how-it-works"],
+                ] as const
+              ).map(([label, href]) => (
+                <a
+                  key={href}
+                  href={href}
+                  className="hidden rounded-md px-2.5 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline"
+                >
+                  {label}
+                </a>
+              ))}
+              <Button
+                size="sm"
+                className="ml-1"
+                disabled={loading}
+                onClick={() => login()}
+              >
+                Sign in
+              </Button>
+            </nav>
+          )}
+
           {isAuthenticated && (
-            <nav className="flex items-center gap-1 sm:gap-3">
+            <nav className="flex items-center gap-1 sm:gap-3" aria-label="Main">
               <Link
                 to="/dashboard"
                 className={cn(
