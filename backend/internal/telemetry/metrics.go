@@ -32,6 +32,16 @@ const (
 	OutcomeAssigned = "assigned"
 	OutcomeError    = "error"
 
+	// Reconcile-failure stages for pool.reconcile.errors. StageReconcile is a
+	// whole-pass failure (the LIST that drives the pass failed); the others are
+	// per-item failures within an otherwise-successful pass that would
+	// previously have been logged and swallowed.
+	StageReconcile = "reconcile"
+	StageProvision = "provision"
+	StageRecycle   = "recycle"
+	StageTrim      = "trim"
+	StageMarkerGC  = "marker_gc"
+
 	// SSE stream kinds for sse.active_streams.
 	KindSession = "session"
 	KindQueue   = "queue"
@@ -93,8 +103,13 @@ func newMetrics(meter metric.Meter) (*Metrics, error) {
 		metric.WithDescription("Sessions reaped by the TTL controller")); err != nil {
 		return nil, err
 	}
+	// NB: this counts ATTEMPTS, not requests. A single Assign call records one
+	// terminal result (success|pool_empty|already_exists|error) plus one
+	// conflict_retry per optimistic-concurrency retry, so the total exceeds the
+	// number of Assign calls. rate(...{result="success"}) tracks the claim rate;
+	// never treat sum(rate(...)) as a request rate — use the HTTP metrics for that.
 	if m.assignAttempts, err = meter.Int64Counter("kubesandbox.assign.attempts",
-		metric.WithDescription("Assignment outcomes (success|pool_empty|already_exists|conflict_retry|error)")); err != nil {
+		metric.WithDescription("Assignment attempts by outcome; conflict_retry is non-terminal (success|pool_empty|already_exists|conflict_retry|error)")); err != nil {
 		return nil, err
 	}
 	if m.markerOrphanGC, err = meter.Int64Counter("kubesandbox.marker.orphan_gc",
@@ -110,7 +125,7 @@ func newMetrics(meter metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 	if m.reconcileErrors, err = meter.Int64Counter("kubesandbox.pool.reconcile.errors",
-		metric.WithDescription("Pool reconcile failures")); err != nil {
+		metric.WithDescription("Pool reconcile failures, by stage (reconcile|provision|recycle|trim|marker_gc)")); err != nil {
 		return nil, err
 	}
 
@@ -259,15 +274,26 @@ func (m *Metrics) RecordProvisionDuration(ctx context.Context, d time.Duration) 
 }
 
 // RecordReconcile records the duration of one reconcile pass and counts a
-// failure when err is non-nil.
+// whole-pass failure (stage=reconcile) when err is non-nil.
 func (m *Metrics) RecordReconcile(ctx context.Context, d time.Duration, err error) {
 	if m == nil {
 		return
 	}
 	m.reconcileDuration.Record(ctx, d.Seconds())
 	if err != nil {
-		m.reconcileErrors.Add(ctx, 1)
+		m.RecordReconcileError(ctx, StageReconcile)
 	}
+}
+
+// RecordReconcileError counts one reconcile failure at stage (provision|recycle|
+// trim|marker_gc|reconcile). Per-item failures inside a pass are otherwise only
+// logged, so without this the pass looks healthy while individual operations
+// fail. Kept out of RecordReconcile so item failures don't need a pass error.
+func (m *Metrics) RecordReconcileError(ctx context.Context, stage string) {
+	if m == nil {
+		return
+	}
+	m.reconcileErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("stage", stage)))
 }
 
 // AddSSEStream tracks an SSE connection of kind (session|queue) opening

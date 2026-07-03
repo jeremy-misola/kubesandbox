@@ -213,7 +213,7 @@ bounded by the route table, not by IDs.
 | `kubesandbox.queue.resolved` | `kubesandbox_queue_resolved_total` | counter | `outcome=assigned\|error` | queue exits |
 | `kubesandbox.queue.wait.duration` | `kubesandbox_queue_wait_duration_seconds_*` | histogram (s) | — | enqueue → terminal event |
 | `kubesandbox.pool.reconcile.duration` | `kubesandbox_pool_reconcile_duration_seconds_*` | histogram (s) | — | one reconcile pass |
-| `kubesandbox.pool.reconcile.errors` | `kubesandbox_pool_reconcile_errors_total` | counter | — | reconcile failures |
+| `kubesandbox.pool.reconcile.errors` | `kubesandbox_pool_reconcile_errors_total` | counter | `stage=reconcile\|provision\|recycle\|trim\|marker_gc` | reconcile failures — `reconcile` is a whole-pass LIST failure, the rest are per-item op failures within a pass |
 | `kubesandbox.sse.active_streams` | `kubesandbox_sse_active_streams` | up/down gauge | `kind=session\|queue` | open SSE connections |
 
 **Cardinality rule (important):** never put `ownerRef`/email/session-id on a

@@ -99,8 +99,13 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
 	}
-	// Flush any buffered metrics before exit.
-	if err := telemetryShutdown(ctx); err != nil {
+	// Flush buffered metrics on a FRESH deadline. srv.Shutdown blocks until
+	// in-flight requests drain, and long-lived SSE streams have no write
+	// timeout, so the 15s budget above can be fully consumed — reusing it here
+	// would leave the OTLP exporter no time to flush over the network.
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer flushCancel()
+	if err := telemetryShutdown(flushCtx); err != nil {
 		log.Printf("telemetry shutdown: %v", err)
 	}
 }

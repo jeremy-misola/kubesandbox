@@ -59,10 +59,11 @@ func (q *AssignQueue) SetMetrics(m *telemetry.Metrics) {
 // position.
 func (q *AssignQueue) Enqueue(owner string, req models.CreateSessionRequest) int {
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	for i, w := range q.items {
 		if w.owner == owner {
-			return i + 1
+			pos := i + 1
+			q.mu.Unlock()
+			return pos // already queued — not a new enqueue, nothing to record
 		}
 	}
 	q.items = append(q.items, &waiter{
@@ -71,8 +72,13 @@ func (q *AssignQueue) Enqueue(owner string, req models.CreateSessionRequest) int
 		subs:       map[chan QueueEvent]struct{}{},
 		enqueuedAt: time.Now(),
 	})
+	pos := len(q.items)
+	q.mu.Unlock()
+
+	// Record outside the lock: an instrument Add must never sit on the queue's
+	// hot path (cheap today, but the SDK is not ours to trust to never block).
 	q.metrics.RecordEnqueued(context.Background())
-	return len(q.items)
+	return pos
 }
 
 // Position returns the 1-based position of owner, or false if not queued.
@@ -131,25 +137,33 @@ func (q *AssignQueue) Subscribe(owner string) (<-chan QueueEvent, func(), bool) 
 // Remaining waiters receive updated positions.
 func (q *AssignQueue) Resolve(owner string, sess *models.Session, errMsg string) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
+	found := false
+	outcome := telemetry.OutcomeAssigned
+	var wait time.Duration
 	for i, w := range q.items {
 		if w.owner != owner {
 			continue
 		}
 		ev := QueueEvent{Type: "assigned", Session: sess}
-		outcome := telemetry.OutcomeAssigned
 		if sess == nil {
 			ev = QueueEvent{Type: "error", Message: errMsg}
 			outcome = telemetry.OutcomeError
 		}
-		q.metrics.RecordResolved(context.Background(), outcome, time.Since(w.enqueuedAt))
+		wait = time.Since(w.enqueuedAt)
+		found = true
 		for ch := range w.subs {
 			trySend(ch, ev)
 			close(ch)
 		}
 		q.items = append(q.items[:i], q.items[i+1:]...)
 		q.broadcastPositionsLocked()
-		return
+		break
+	}
+	q.mu.Unlock()
+
+	// Record outside the lock (see Enqueue).
+	if found {
+		q.metrics.RecordResolved(context.Background(), outcome, wait)
 	}
 }
 

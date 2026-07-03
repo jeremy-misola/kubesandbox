@@ -153,6 +153,7 @@
    "type": "timeseries",
    "title": "5xx error ratio",
    "id": 4,
+   "description": "Long-lived SSE streams (/events) are excluded so their multi-minute durations don't distort the ratio.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -166,7 +167,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"$job\",http_response_status_code=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{job=\"$job\"}[$__rate_interval]))",
+     "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"$job\",http_route!~\".*/events\",http_response_status_code=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{job=\"$job\",http_route!~\".*/events\"}[$__rate_interval]))",
      "datasource": {
       "type": "prometheus",
       "uid": "${datasource}"
@@ -202,6 +203,7 @@
    "type": "timeseries",
    "title": "Request latency (p50/p95/p99)",
    "id": 5,
+   "description": "SSE stream routes (/events) are excluded: they stay open for minutes and would otherwise land in the +Inf bucket and pin the quantiles.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -215,7 +217,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+     "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\",http_route!~\".*/events\"}[$__rate_interval])))",
      "datasource": {
       "type": "prometheus",
       "uid": "${datasource}"
@@ -224,7 +226,7 @@
     },
     {
      "refId": "B",
-     "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\",http_route!~\".*/events\"}[$__rate_interval])))",
      "datasource": {
       "type": "prometheus",
       "uid": "${datasource}"
@@ -233,7 +235,7 @@
     },
     {
      "refId": "C",
-     "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=\"$job\",http_route!~\".*/events\"}[$__rate_interval])))",
      "datasource": {
       "type": "prometheus",
       "uid": "${datasource}"
@@ -319,6 +321,7 @@
    "type": "timeseries",
    "title": "In-flight requests",
    "id": 7,
+   "description": "Includes open SSE streams; http_server_active_requests carries no http_route label, so streams can't be filtered out here. Cross-reference the 'SSE streams' panel.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -1091,6 +1094,7 @@
    "type": "timeseries",
    "title": "Reconcile errors",
    "id": 24,
+   "description": "By stage: reconcile (whole-pass list failure) plus per-item failures (provision/recycle/trim/marker_gc) that are otherwise only logged.",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -1104,12 +1108,12 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(rate(kubesandbox_pool_reconcile_errors_total[$__rate_interval]))",
+     "expr": "sum by (stage) (rate(kubesandbox_pool_reconcile_errors_total[$__rate_interval]))",
      "datasource": {
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "legendFormat": "errors/s"
+     "legendFormat": "{{stage}}"
     }
    ],
    "fieldConfig": {

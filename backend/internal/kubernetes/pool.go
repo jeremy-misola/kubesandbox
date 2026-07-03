@@ -182,6 +182,12 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 		// transition, measured warm create -> this sighting. Members already
 		// Ready when the process started were never pending here, so restarts
 		// don't skew the histogram.
+		//
+		// Resolution note: the "Ready sighting" is only as fresh as the reconcile
+		// cadence, so each sample carries up to ~cfg.Resync (default 30s) of
+		// upward quantization error. Trust the histogram for coarse buckets
+		// (minutes), not sub-Resync movements; a precise figure would read the
+		// composition/status readiness timestamp instead of the sighting time.
 		name := c.GetName()
 		if ready {
 			if _, wasPending := p.pendingReady[name]; wasPending {
@@ -248,6 +254,7 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 		log.Printf("pool: recycling stale member %s (age > %s)", name, p.cfg.MaxWarmAge)
 		if err := p.svc.deleteByName(ctx, name); err != nil {
 			log.Printf("pool: recycle %s failed: %v", name, err)
+			p.metrics.RecordReconcileError(ctx, telemetry.StageRecycle)
 		} else {
 			p.metrics.RecordRecycled(ctx, telemetry.ReasonStale)
 			total-- // capacity frees asynchronously; don't double-provision against it
@@ -268,6 +275,7 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 			log.Printf("pool: trimming excess member %s", name)
 			if err := p.svc.deleteByName(ctx, name); err != nil {
 				log.Printf("pool: trim %s failed: %v", name, err)
+				p.metrics.RecordReconcileError(ctx, telemetry.StageTrim)
 			} else {
 				p.metrics.RecordRecycled(ctx, telemetry.ReasonTrim)
 				warm--
@@ -281,6 +289,7 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 		sess, err := p.svc.CreateWarm(ctx)
 		if err != nil {
 			log.Printf("pool: warm provision failed: %v", err)
+			p.metrics.RecordReconcileError(ctx, telemetry.StageProvision)
 			break
 		}
 		log.Printf("pool: provisioning warm member %s (%d/%d warm, %d/%d total)",
@@ -312,6 +321,7 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 		log.Printf("pool: removing orphaned owner marker %s", m.GetName())
 		if err := p.svc.deleteOwnerMarker(ctx, owner); err != nil {
 			log.Printf("pool: marker GC failed: %v", err)
+			p.metrics.RecordReconcileError(ctx, telemetry.StageMarkerGC)
 		} else {
 			p.metrics.RecordMarkerOrphanGC(ctx)
 		}
