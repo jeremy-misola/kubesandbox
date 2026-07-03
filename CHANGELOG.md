@@ -8,6 +8,55 @@ today. Newest first.
 
 ---
 
+## rev 23 — 2026-07-03 — Backend metrics instrumentation (OTel SDK) + review fixes
+
+Phases 1–2 of `docs/reference/observability-architecture.md`: the Gin backend is
+now instrumented with the OpenTelemetry Go SDK. New `internal/telemetry` package
+bootstraps a `MeterProvider` (OTLP/HTTP exporter + periodic reader, all
+env-driven) and owns the instrument set as an injected `*Metrics` — a nil
+receiver is a valid no-op on every method, so tests and pool-disabled/telemetry-off
+runs stay hermetic. `otelgin` middleware supplies HTTP server metrics; the
+contrib runtime package supplies `go.*` metrics. Custom domain instruments hook
+into functions that already exist: pool-state gauges are **asynchronous**,
+reading atomics that `reconcileOnce` writes each pass (level-based source of
+truth → no drift/double-count); plus counters/histograms for assign attempts,
+claims (by source), provision/recycle/expire, queue depth/wait, and reconcile
+duration. Chart wires the `OTEL_*` env block + `HOST_IP`/`POD_NAME` downward API
+(incl. `service.instance.id=$(POD_NAME)`); telemetry-off renders
+`OTEL_SDK_DISABLED=true`. Full six-row Grafana dashboard JSON shipped at
+`kubesandbox-charts/kubesandbox-backend/dashboards/kubesandbox-backend-pool.json`.
+Remaining before it's live: build/push the image, deploy the chart, confirm
+`count({__name__=~"kubesandbox_.*"})` in Explore, import the dashboard.
+
+Review fixes folded into the same rev (found in a critical pass over the diff):
+- **SSE endpoints no longer skew HTTP latency/error panels.** `otelgin` records
+  request duration on handler return, and the `/events` SSE handlers stay open
+  for minutes — a single close would drop a multi-minute observation into the
+  histogram's `+Inf` bucket and pin p95/p99. The latency and 5xx-ratio panels
+  (and the doc's Row 1 PromQL) now exclude `http_route=~".*/events"`. The
+  In-flight panel can't filter (no `http_route` label on
+  `http_server_active_requests`), so it's annotated to cross-read the SSE-streams
+  panel.
+- **`pool.reconcile.errors` no longer undercounts.** Per-item failures inside a
+  pass (`provision`/`recycle`/`trim`/`marker_gc`) were logged and swallowed, so
+  the metric looked healthy during exactly the partial failures worth alerting
+  on. Added a `stage` label + `RecordReconcileError`; whole-pass LIST failures
+  report `stage=reconcile`. Dashboard panel now breaks down `by (stage)`.
+- **Queue instrument recording moved out from under `q.mu`** in `Enqueue`/
+  `Resolve` — an SDK `Add`/`Record` no longer sits on the queue's hot lock.
+- **Metric flush gets its own shutdown deadline.** `main` was passing the same
+  15s context to `srv.Shutdown` and `telemetryShutdown`; a slow SSE drain could
+  consume it and starve the final OTLP flush. Flush now uses a fresh 5s context.
+- Clarifying comments: `assign.attempts` counts attempts not requests
+  (`conflict_retry` is non-terminal, so the total exceeds Assign calls); the
+  approximate `provision.duration` carries up to ~`Resync` (30s) of upward
+  quantization. Flagged a stray editor temp file
+(`backend/internal/kubernetes/pool.go.<n>`, untracked) for deletion — remove it
+with `rm` / `git clean`.
+
+Verify locally with `go build ./...` and `go test ./... -race` (the sandbox
+shell was unavailable when these edits were written). Not yet deployed.
+
 ## rev 22 — 2026-07-02 — Observability design + collector metrics → Mimir
 
 Groundwork for backend observability. Added

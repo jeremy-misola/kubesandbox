@@ -232,8 +232,14 @@ Datasource: **Mimir**. `$job = kubesandbox-backend`. Panels/queries:
 **Row 1 — API & load** (answers "api requests / how it handles load")
 - Request rate: `sum(rate(http_server_request_duration_seconds_count{job="$job"}[5m]))`
 - By route: `sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[5m]))`
-- Error ratio (5xx): `sum(rate(http_server_request_duration_seconds_count{job="$job",http_response_status_code=~"5.."}[5m])) / sum(rate(http_server_request_duration_seconds_count{job="$job"}[5m]))`
-- Latency p50/p95/p99: `histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="$job"}[5m])))`
+- Error ratio (5xx): `sum(rate(http_server_request_duration_seconds_count{job="$job",http_route!~".*/events",http_response_status_code=~"5.."}[5m])) / sum(rate(http_server_request_duration_seconds_count{job="$job",http_route!~".*/events"}[5m]))`
+- Latency p50/p95/p99: `histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="$job",http_route!~".*/events"}[5m])))`
+  - **Exclude the SSE stream routes (`/events`) from latency and error-ratio
+    panels.** Those handlers stay open for the stream's lifetime (minutes), so
+    `otelgin` records a multi-minute duration on close that lands in the `+Inf`
+    bucket and pins the quantiles. `http_server_active_requests` carries no
+    `http_route` label, so the In-flight panel can't filter them — it counts
+    open streams too; cross-read it against the SSE-streams panel (Row 5).
 - Create outcomes (201 assign / 202 queued / 409 dup): `sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job="$job",http_route="/api/sessions",http_request_method="POST"}[5m]))`
 - In-flight: `http_server_active_requests{job="$job"}`
 
@@ -257,7 +263,7 @@ Datasource: **Mimir**. `$job = kubesandbox-backend`. Panels/queries:
 
 **Row 5 — Internals**
 - Reconcile p95: `histogram_quantile(0.95, sum by (le) (rate(kubesandbox_pool_reconcile_duration_seconds_bucket[5m])))`
-- Reconcile errors: `sum(rate(kubesandbox_pool_reconcile_errors_total[5m]))`
+- Reconcile errors (by stage): `sum by (stage) (rate(kubesandbox_pool_reconcile_errors_total[5m]))` — `stage=reconcile` is a whole-pass LIST failure; `provision|recycle|trim|marker_gc` are per-item op failures within a pass (otherwise only logged)
 - Assign conflict retries (optimistic-concurrency contention): `sum(rate(kubesandbox_assign_attempts_total{result="conflict_retry"}[5m]))`
 - SSE streams: `sum by (kind) (kubesandbox_sse_active_streams)`
 - Runtime: `go_memory_used_bytes{job="$job"}`, `go_goroutine_count{job="$job"}`
