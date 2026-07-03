@@ -14,7 +14,7 @@
 # kubeconfig retrieval is done by the ttyd shell pod via a mounted Secret
 # volume, not by the backend). If a future feature needs the backend to read
 # Secrets, add a narrowly-scoped grant for that specific namespace/purpose at
-# that time rather than restoring a cluster-wide one.
+# that time rather than restoring a cluster-wide one
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
