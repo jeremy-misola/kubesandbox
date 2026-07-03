@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 // Sentinel errors returned by the service and mapped to HTTP codes by handlers.
@@ -68,6 +69,10 @@ type SessionService struct {
 	// pool manager recycles it. Zero disables the check.
 	maxWarmAge time.Duration
 
+	// metrics is the injected instrument set; nil (tests, telemetry disabled)
+	// is a valid no-op.
+	metrics *telemetry.Metrics
+
 	now func() time.Time // injectable for tests
 }
 
@@ -84,6 +89,9 @@ func NewSessionService(client dynamic.Interface, namespace, baseURL string, defa
 
 // SetMaxWarmAge configures the freshness ceiling for hand-outs.
 func (s *SessionService) SetMaxWarmAge(d time.Duration) { s.maxWarmAge = d }
+
+// SetMetrics injects the telemetry instrument set (nil is a valid no-op).
+func (s *SessionService) SetMetrics(m *telemetry.Metrics) { s.metrics = m }
 
 func (s *SessionService) resource() dynamic.ResourceInterface {
 	return s.client.Resource(models.GVR).Namespace(s.namespace)

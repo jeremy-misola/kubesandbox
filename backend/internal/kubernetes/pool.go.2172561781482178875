@@ -159,7 +159,7 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 	total := 0   // every managed claim occupies capacity until fully gone
 	claimed := 0 // live (non-deleting) claims held by an owner
 	var fresh, stale, notReady []unstructured.Unstructured
-	owners := map[string]bool{}             // owners holding a live (non-deleting) claim
+	owners := map[string]bool{}            // owners holding a live (non-deleting) claim
 	presentPending := map[string]struct{}{} // not-Ready members seen this pass
 
 	for i := range claims {

@@ -1,9 +1,12 @@
 package kubernetes
 
 import (
+	"context"
 	"sync"
+	"time"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 // QueueEvent is streamed to SSE subscribers of a queued create request.
@@ -24,6 +27,8 @@ type waiter struct {
 	owner string
 	req   models.CreateSessionRequest
 	subs  map[chan QueueEvent]struct{}
+	// enqueuedAt feeds the queue.wait.duration histogram on Resolve.
+	enqueuedAt time.Time
 }
 
 // AssignQueue is an in-memory FIFO of owners waiting for a warm sandbox.
@@ -35,10 +40,20 @@ type waiter struct {
 type AssignQueue struct {
 	mu    sync.Mutex
 	items []*waiter
+
+	// metrics is the injected instrument set; nil is a valid no-op.
+	metrics *telemetry.Metrics
 }
 
 // NewAssignQueue constructs an empty queue.
 func NewAssignQueue() *AssignQueue { return &AssignQueue{} }
+
+// SetMetrics injects the telemetry instrument set (nil is a valid no-op) and
+// wires the queue.depth gauge to Len.
+func (q *AssignQueue) SetMetrics(m *telemetry.Metrics) {
+	q.metrics = m
+	m.RegisterQueueDepth(func() int64 { return int64(q.Len()) })
+}
 
 // Enqueue adds owner to the queue (deduplicated) and returns its 1-based
 // position.
@@ -50,7 +65,13 @@ func (q *AssignQueue) Enqueue(owner string, req models.CreateSessionRequest) int
 			return i + 1
 		}
 	}
-	q.items = append(q.items, &waiter{owner: owner, req: req, subs: map[chan QueueEvent]struct{}{}})
+	q.items = append(q.items, &waiter{
+		owner:      owner,
+		req:        req,
+		subs:       map[chan QueueEvent]struct{}{},
+		enqueuedAt: time.Now(),
+	})
+	q.metrics.RecordEnqueued(context.Background())
 	return len(q.items)
 }
 
@@ -116,9 +137,12 @@ func (q *AssignQueue) Resolve(owner string, sess *models.Session, errMsg string)
 			continue
 		}
 		ev := QueueEvent{Type: "assigned", Session: sess}
+		outcome := telemetry.OutcomeAssigned
 		if sess == nil {
 			ev = QueueEvent{Type: "error", Message: errMsg}
+			outcome = telemetry.OutcomeError
 		}
+		q.metrics.RecordResolved(context.Background(), outcome, time.Since(w.enqueuedAt))
 		for ch := range w.subs {
 			trySend(ch, ev)
 			close(ch)

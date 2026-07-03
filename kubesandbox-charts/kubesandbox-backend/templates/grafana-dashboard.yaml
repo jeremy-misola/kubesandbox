@@ -1,0 +1,19 @@
+{{- if .Values.telemetry.dashboard.enabled -}}
+# Grafana dashboard "KubeSandbox — Backend & Pool"
+# (docs/reference/observability-architecture.md §6), auto-imported by the
+# kube-prometheus-stack Grafana sidecar via the grafana_dashboard label.
+#
+# NOTE: the sidecar only picks this up if it watches this namespace
+# (grafana.sidecar.dashboards.searchNamespace=ALL in the monitoring stack).
+# Otherwise import dashboards/kubesandbox-backend-pool.json manually.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubesandbox-backend.fullname" . }}-dashboard
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  kubesandbox-backend-pool.json: |-
+{{ .Files.Get "dashboards/kubesandbox-backend-pool.json" | indent 4 }}
+{{- end }}

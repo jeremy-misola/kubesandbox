@@ -8,6 +8,32 @@ today. Newest first.
 
 ---
 
+## rev 22 — 2026-07-02 — Observability design + collector metrics → Mimir
+
+Groundwork for backend observability. Added
+`docs/reference/observability-architecture.md`: an OpenTelemetry-Go-SDK metrics
+design (push OTLP → node-local collector agent → Mimir → Grafana) with a metrics
+catalog mapped to the functions that already exist (`Assign`, the pool
+`reconcileOnce`, the assign queue, the TTL loop, SSE), the post-export Prometheus
+series names, six dashboard rows of copy-paste PromQL, alert candidates, and a
+phased rollout. No app code changed yet — instrumentation is the next phase.
+
+Phase 0 shipped (infra, in `GitOps-Homelab`): the shared otel-collector's
+`metrics` pipeline previously exported only to `debug`, so any OTLP metrics were
+silently dropped. Added a `prometheusremotewrite/mimir` exporter
+(`operators-helm/operators/otel-collector/values/chart/values-prd.yaml`) pointing
+at the same Mimir push endpoint and `prod` tenant the Prometheus remote-write
+already uses (`X-Scope-OrgID: prod`, `cluster=prod`, `resource_to_telemetry_conversion`
+on). Only the pipeline's `exporters` list is overridden — the chart's default
+`[otlp, prometheus]` receivers and `[k8sattributes, memory_limiter, batch]`
+processors are preserved via deep-merge, and `debug` is retained so it stays a
+referenced component (the collector fatals on any defined-but-unused component).
+Verified by rendering the chart (v0.159.0) with the patched values; the
+DaemonSet's `checksum/config` annotation means an ArgoCD sync rolls the agents.
+Collector self-metrics (`otelcol_*`) now reach Mimir, proving the path end-to-end
+ahead of the app instrumentation. `values-dev.yaml` left unchanged (dev writes
+cross-cluster to prod Mimir via a separate endpoint/tenant, to be confirmed).
+
 ## rev 21 — 2026-07-02 — Backend cleanup: split the god-file, dedupe handlers, fix nits
 
 Non-functional refactor of the backend — no behaviour change, existing tests

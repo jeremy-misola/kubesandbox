@@ -9,6 +9,7 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/middleware"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 const msgSessionExists = "you already have a sandbox (or one is still being cleaned up); delete it before creating a new one"
@@ -18,12 +19,15 @@ type SessionHandler struct {
 	svc         *k8s.SessionService
 	queue       *k8s.AssignQueue
 	poolEnabled bool
+	// metrics is the injected instrument set; nil is a valid no-op.
+	metrics *telemetry.Metrics
 }
 
 // NewSessionHandler constructs a SessionHandler. queue may be nil when the warm
-// pool is disabled (legacy direct-create mode).
-func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, poolEnabled bool) *SessionHandler {
-	return &SessionHandler{svc: svc, queue: queue, poolEnabled: poolEnabled}
+// pool is disabled (legacy direct-create mode); metrics may be nil when
+// telemetry is disabled.
+func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, poolEnabled bool, metrics *telemetry.Metrics) *SessionHandler {
+	return &SessionHandler{svc: svc, queue: queue, poolEnabled: poolEnabled, metrics: metrics}
 }
 
 // Create handles POST /api/sessions. The hot-pool path assigns an already-warm
@@ -46,6 +50,9 @@ func (h *SessionHandler) Create(c *gin.Context) {
 	sess, err := h.svc.Assign(c.Request.Context(), ident.Subject, req)
 	switch {
 	case err == nil:
+		// source=request distinguishes direct hand-outs from queue admissions
+		// (recorded by the pool manager); both paths share Assign.
+		h.metrics.RecordClaimed(c.Request.Context(), telemetry.SourceRequest)
 		c.JSON(http.StatusCreated, sess)
 	case errors.Is(err, k8s.ErrAlreadyExists):
 		respondError(c, http.StatusConflict, "session_exists", msgSessionExists)

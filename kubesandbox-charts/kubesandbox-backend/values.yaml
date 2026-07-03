@@ -129,6 +129,28 @@ config:
   # TTL cleanup interval in minutes (reserved for the G3 TTL loop)
   ttlCleanupInterval: "1"
 
+# OTel metrics (docs/reference/observability-architecture.md): the backend
+# pushes OTLP/HTTP metrics to the node-local otel-collector agent (DaemonSet),
+# whose metrics pipeline remote-writes to Mimir (tenant: prod). Query in
+# Grafana via the existing "Mimir" datasource, job="kubesandbox-backend".
+telemetry:
+  enabled: true
+  # Node-local agent via the downward API ($(HOST_IP) expands to status.hostIP).
+  # Standard DaemonSet pattern: each pod talks to the agent on its own node.
+  otlpEndpoint: "http://$(HOST_IP):4318"
+  # Lands as the deployment.environment resource attribute.
+  environment: prod
+  # Periodic reader export interval (ms). 15s oversamples the [5m] dashboard
+  # windows comfortably.
+  exportIntervalMs: "15000"
+  # Grafana dashboard ConfigMap (sidecar auto-import via grafana_dashboard
+  # label). Off by default: enable only if the Grafana sidecar watches all
+  # namespaces (sidecar.dashboards.searchNamespace=ALL); otherwise import
+  # dashboards/kubesandbox-backend-pool.json manually or ship it via the
+  # monitoring GitOps app instead.
+  dashboard:
+    enabled: false
+
 # Hot warm-pool (docs/history/hot-pool-implementation-brief.md): keep N pre-provisioned sandboxes RUNNING so a
 # create request is a metadata-only assignment (sub-15s) instead of a cold
 # build (10+ min). Empty pool => requests queue (202 + /api/queue/events).

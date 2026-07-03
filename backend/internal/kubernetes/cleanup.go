@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 // TTLController enforces session TTLs server-side. Sessions are ephemeral; this
@@ -21,6 +22,9 @@ type TTLController struct {
 	svc      *SessionService
 	interval time.Duration
 	now      func() time.Time
+
+	// metrics is the injected instrument set; nil is a valid no-op.
+	metrics *telemetry.Metrics
 }
 
 // NewTTLController constructs a TTLController. A non-positive interval defaults
@@ -31,6 +35,9 @@ func NewTTLController(svc *SessionService, interval time.Duration) *TTLControlle
 	}
 	return &TTLController{svc: svc, interval: interval, now: time.Now}
 }
+
+// SetMetrics injects the telemetry instrument set (nil is a valid no-op).
+func (t *TTLController) SetMetrics(m *telemetry.Metrics) { t.metrics = m }
 
 // Run reconciles once per interval until ctx is cancelled. It runs an immediate
 // pass on start so a restart reaps anything that expired while down.
@@ -85,6 +92,7 @@ func (t *TTLController) reconcileOnce(ctx context.Context) (int, error) {
 			continue
 		}
 		deleted++
+		t.metrics.RecordExpired(ctx, 1)
 		// Release the owner's one-per-user marker so they can create again.
 		if owner := specOwner(&c); owner != "" {
 			if err := t.svc.deleteOwnerMarker(ctx, owner); err != nil {

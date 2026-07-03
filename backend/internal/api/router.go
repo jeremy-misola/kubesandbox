@@ -3,11 +3,13 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/handlers"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/middleware"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 // NewRouter builds the Gin engine.
@@ -21,14 +23,18 @@ import (
 //	                          ownership check.
 //	GET  /oauth2/callback   — OIDC callback: exchange code, set session cookie,
 //	                          redirect to original URL. No auth.
-func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue) *gin.Engine {
+func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue, metrics *telemetry.Metrics) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
+	// HTTP server metrics (http.server.request.duration, labelled by templated
+	// http.route). Reads the global providers installed by telemetry.Setup;
+	// when telemetry is disabled the globals are no-ops.
+	r.Use(otelgin.Middleware("kubesandbox-backend"))
 
 	r.GET("/health", handlers.Health)
 	r.GET("/healthz", handlers.Health)
 
-	sessions := handlers.NewSessionHandler(svc, queue, cfg.PoolEnabled)
+	sessions := handlers.NewSessionHandler(svc, queue, cfg.PoolEnabled, metrics)
 
 	api := r.Group("/api")
 	api.Use(middleware.IdentityMiddleware(cfg))

@@ -13,6 +13,7 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/middleware"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 // heartbeatInterval keeps idle SSE connections (and intermediaries) alive.
@@ -35,6 +36,9 @@ func (h *SessionHandler) Events(c *gin.Context) {
 		return
 	}
 	writeSSEHeaders(c)
+
+	h.metrics.AddSSEStream(c.Request.Context(), telemetry.KindSession, 1)
+	defer h.metrics.AddSSEStream(c.Request.Context(), telemetry.KindSession, -1)
 
 	writeSessionEvent(c, flusher, "update", current)
 
@@ -108,6 +112,9 @@ func (h *SessionHandler) QueueEvents(c *gin.Context) {
 	defer unsub()
 
 	writeSSEHeaders(c)
+
+	h.metrics.AddSSEStream(c.Request.Context(), telemetry.KindQueue, 1)
+	defer h.metrics.AddSSEStream(c.Request.Context(), telemetry.KindQueue, -1)
 
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()

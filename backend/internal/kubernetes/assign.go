@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 // Assign hands an available, Ready, fresh pool member to ownerRef.
@@ -29,8 +30,10 @@ func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models
 
 	if err := s.createOwnerMarker(ctx, ownerRef); err != nil {
 		if apierrors.IsAlreadyExists(err) {
+			s.metrics.RecordAssignAttempt(ctx, telemetry.ResultAlreadyExists)
 			return nil, ErrAlreadyExists
 		}
+		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultError)
 		return nil, fmt.Errorf("create owner marker: %w", err)
 	}
 
@@ -39,16 +42,19 @@ func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models
 	existing, err := s.List(ctx, ownerRef)
 	if err != nil {
 		_ = s.deleteOwnerMarker(ctx, ownerRef)
+		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultError)
 		return nil, err
 	}
 	if len(existing) > 0 {
 		_ = s.deleteOwnerMarker(ctx, ownerRef)
+		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultAlreadyExists)
 		return nil, ErrAlreadyExists
 	}
 
 	members, err := s.listAssignableMembers(ctx)
 	if err != nil {
 		_ = s.deleteOwnerMarker(ctx, ownerRef)
+		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultError)
 		return nil, err
 	}
 
@@ -81,18 +87,23 @@ func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models
 		updated, err := s.resource().Update(ctx, m, metav1.UpdateOptions{})
 		if err != nil {
 			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
-				continue // raced with another assignment/recycle; try next member
+				// Raced with another assignment/recycle; try the next member.
+				s.metrics.RecordAssignAttempt(ctx, telemetry.ResultConflictRetry)
+				continue
 			}
 			_ = s.deleteOwnerMarker(ctx, ownerRef)
+			s.metrics.RecordAssignAttempt(ctx, telemetry.ResultError)
 			return nil, fmt.Errorf("claim pool member %q: %w", m.GetName(), err)
 		}
 
 		s.setOwnerMarkerMember(ctx, ownerRef, updated.GetName())
+		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultSuccess)
 		sess := s.ToSession(updated)
 		return &sess, nil
 	}
 
 	_ = s.deleteOwnerMarker(ctx, ownerRef)
+	s.metrics.RecordAssignAttempt(ctx, telemetry.ResultPoolEmpty)
 	return nil, ErrPoolEmpty
 }
 

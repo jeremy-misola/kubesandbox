@@ -19,10 +19,22 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
 func main() {
 	cfg := config.Load()
+
+	// OTel metrics (docs/reference/observability-architecture.md): OTLP push to
+	// the node-local collector agent, env-driven. metrics is nil (no-op) when
+	// OTEL_SDK_DISABLED=true or no endpoint is configured.
+	metrics, telemetryShutdown, err := telemetry.Setup(context.Background())
+	if err != nil {
+		log.Fatalf("telemetry: %v", err)
+	}
+	if metrics != nil {
+		log.Printf("telemetry: OTLP metrics enabled (endpoint=%s)", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	}
 
 	client, err := k8s.NewDynamicClient()
 	if err != nil {
@@ -35,9 +47,11 @@ func main() {
 		cfg.PublicBaseURL,
 		models.DefaultWorkspaceImage,
 	)
+	svc.SetMetrics(metrics)
 
 	queue := k8s.NewAssignQueue()
-	router := api.NewRouter(cfg, svc, queue)
+	queue.SetMetrics(metrics)
+	router := api.NewRouter(cfg, svc, queue, metrics)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -49,6 +63,7 @@ func main() {
 	// Background TTL cleanup loop; cancelled on shutdown.
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	ttl := k8s.NewTTLController(svc, cfg.TTLCleanupInterval)
+	ttl.SetMetrics(metrics)
 	go ttl.Run(bgCtx)
 
 	// Warm-pool manager: keeps N unclaimed sandboxes Ready so creates are a
@@ -60,6 +75,7 @@ func main() {
 			MaxWarmAge: cfg.PoolMaxWarmAge,
 			Resync:     cfg.PoolResync,
 		})
+		pool.SetMetrics(metrics)
 		go pool.Run(bgCtx)
 	}
 
@@ -82,5 +98,9 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
+	}
+	// Flush any buffered metrics before exit.
+	if err := telemetryShutdown(ctx); err != nil {
+		log.Printf("telemetry shutdown: %v", err)
 	}
 }

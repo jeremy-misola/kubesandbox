@@ -72,6 +72,34 @@ spec:
               value: {{ .Values.pool.maxWarmAgeHours | quote }}
             - name: POOL_RESYNC_SECONDS
               value: {{ .Values.pool.resyncSeconds | quote }}
+            # --- OTel metrics (docs/reference/observability-architecture.md) ---
+            # Push model: OTLP/HTTP to the node-local otel-collector agent via
+            # the downward API; no /metrics endpoint, no ServiceMonitor.
+            {{- if .Values.telemetry.enabled }}
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.telemetry.otlpEndpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_SERVICE_NAME
+              value: "kubesandbox-backend"
+            # service.instance.id = pod name so per-replica series never
+            # collide if the backend scales past one replica.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=kubesandbox,service.version={{ .Values.image.tag | default .Chart.AppVersion }},service.instance.id=$(POD_NAME),deployment.environment={{ .Values.telemetry.environment }}"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ .Values.telemetry.exportIntervalMs | quote }}
+            {{- else }}
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            {{- end }}
             {{- if .Values.sessionAuth.enabled }}
             # --- G2 Option B: backend-owned session auth ---
             - name: OIDC_ISSUER
