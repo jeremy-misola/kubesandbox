@@ -1,8 +1,14 @@
 # KubeSandbox — Fast Provisioning Approach
 
-**Status:** proposal (2026-07-02, revised after architecture review, sign-off, and the pause/resume spike) — methodology and option assessment; not yet a design
+**Status:** accepted and **implemented** — the recommended hot warm-pool shipped 2026-07-02. Historical rationale, kept for context.
 **Audience:** Jeremy (platform owner)
-**Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`03-implementation-plan.md`](./03-implementation-plan.md)
+**Related:** [`hot-pool-design.md`](../reference/hot-pool-design.md) · [`pause-resume-spike.md`](./pause-resume-spike.md) · [`backend-architecture.md`](../reference/backend-architecture.md)
+
+> **Update (2026-07-02).** The recommendation in §6 (a **hot** warm pool with
+> assignment, single sandbox type, queue on empty) was implemented. See
+> [`hot-pool-design.md`](../reference/hot-pool-design.md) for the as-built design and
+> live measurements. This document is retained as the rationale and options
+> assessment that led there.
 
 ---
 
@@ -17,7 +23,7 @@
 > ceiling)**, collapsed the platform to a **single sandbox type**, set the
 > empty-pool fallback to a **queue**, and — with a peak arrival of only ~5/hour —
 > all but eliminated the pool-sizing problem. A pause/resume spike
-> ([`09-pause-resume-spike.md`](./09-pause-resume-spike.md)) then **rejected the
+> ([`pause-resume-spike.md`](./pause-resume-spike.md)) then **rejected the
 > "paused" warm-pool variant** (§5.6): resuming a scaled-to-zero vcluster took ~73 s
 > (floor ~25 s), far outside 15 s. **The pool must therefore be *hot* (pods kept
 > running), where assignment is a metadata change and effectively instant.** At this
@@ -56,7 +62,7 @@ reframes the problem from "provision faster" to "pre-provision, then assign."
 
 **The target is confirmed hard (resolved).** Sign-off fixed the budget at
 **10 seconds, 15 seconds maximum** (§2.2) — not the "under a minute"
-[`01-backend-architecture.md`](./01-backend-architecture.md) assumed. This rules
+[`backend-architecture.md`](../reference/backend-architecture.md) assumed. This rules
 out the relaxed path where cold-path optimization alone would suffice: at a
 15-second ceiling the user cannot be on a cold build, so pre-provisioning is
 required. The number now legitimately drives §5.
@@ -235,7 +241,7 @@ Keep the pool warm but **asleep**: vcluster workloads scaled to zero, resumed on
 demand, trading a little resume latency for near-zero idle CPU/memory. This was the
 most attractive variant on paper because it attacks the idle-cost trade-off in §5.2.
 **Assessment: rejected.** The spike
-([`09-pause-resume-spike.md`](./09-pause-resume-spike.md)) measured resume
+([`pause-resume-spike.md`](./pause-resume-spike.md)) measured resume
 (scale-to-zero → ready) at **~73 s**, with a floor around **25 s** even fully tuned,
 against a **15 s** ceiling. The cause is structural: a scale-up recreates the pod
 from scratch each time — re-running the binary-copy init container and re-booting the
@@ -298,7 +304,7 @@ Resolved (folded into §2.2 / §5.6):
 - **Empty-pool fallback** — queue.
 - **Idle budget** — up to 10 warm sandboxes.
 - **vcluster pause→resume latency** — measured ~73 s (floor ~25 s); **paused pool
-  rejected, pool runs hot** ([`09-pause-resume-spike.md`](./09-pause-resume-spike.md)).
+  rejected, pool runs hot** ([`pause-resume-spike.md`](./pause-resume-spike.md)).
 
 Still open — the one remaining design gate (§6):
 

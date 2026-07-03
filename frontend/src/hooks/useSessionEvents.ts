@@ -8,7 +8,7 @@ import type { Session } from "@/lib/schemas";
 /**
  * Subscribes to the session's SSE stream and pushes live updates into the query
  * cache. Falls back to polling GET /sessions/:id if streaming fails
- * (docs/06 §4.3, design-principles §7).
+ * (docs/reference/frontend-architecture.md §4.3, design-principles §7).
  */
 export function useSessionEvents(id: string, enabled = true) {
   const qc = useQueryClient();

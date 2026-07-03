@@ -8,7 +8,7 @@ import { config } from "@/config";
 
 // Authorization Code + PKCE against Authentik (public client, no secret).
 //
-// Token posture (revised from docs/06 §4.1/§5): the original design kept
+// Token posture (revised from docs/reference/frontend-architecture.md §4.1/§5): the original design kept
 // tokens in memory only and relied on iframe silent renew against the
 // Authentik SSO session. That is structurally broken cross-site — the app
 // (kubesandbox.com) and Authentik (auth.jeremymr.dev) are different sites, so

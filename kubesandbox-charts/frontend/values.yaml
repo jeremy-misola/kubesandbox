@@ -101,7 +101,7 @@ httpRoute:
   # Protected paths that require Envoy edge OIDC authentication.
   # Empty by design: the SPA runs its OWN Authorization Code + PKCE flow
   # (public Authentik client, tokens in memory) — see
-  # docs/06-frontend-architecture.md §4.1. The terminal is NOT a frontend route:
+  # docs/reference/frontend-architecture.md §4.1. The terminal is NOT a frontend route:
   # it is the backend's /s/{id} (backend-owned OIDC + ext-authz). /terminal/:id is
   # only a client-side hand-off page inside the public SPA bundle, already served
   # by the "/" publicPath. Leaving this empty disables the frontend
@@ -157,7 +157,7 @@ readinessProbe:
 # Environment variables injected into the running container. docker-entrypoint.sh
 # reads these at start and writes /config.js (window.__ENV), which src/config.ts
 # resolves before the bundle — so ONE built image promotes across environments
-# (see docs/06-frontend-architecture.md §7). These can be overridden per-env by
+# (see docs/reference/frontend-architecture.md §7). These can be overridden per-env by
 # the GitOps-Homelab frontend values files.
 env:
   # Base path for the control API. The backend serves /api (router.go), NOT /api/v1.
@@ -201,7 +201,7 @@ affinity: {}
 #
 # DISABLED by design. The SPA runs its own Authorization Code + PKCE flow against
 # Authentik as a PUBLIC client and attaches the bearer to /api itself
-# (docs/06-frontend-architecture.md §4.1). There is therefore no Envoy edge OIDC
+# (docs/reference/frontend-architecture.md §4.1). There is therefore no Envoy edge OIDC
 # on the frontend routes, and no client_secret in the browser. This block is kept
 # (disabled) only for reference / a possible future edge-OIDC fallback.
 #

@@ -1,8 +1,13 @@
 # KubeSandbox — vcluster Pause/Resume Spike Findings
 
-**Status:** spike complete (2026-07-02) — resolves the pause/resume gate in [`08-provisioning-latency-approach.md`](./08-provisioning-latency-approach.md) §5.6/§7
+**Status:** spike complete (2026-07-02) — informed the shipped **hot** pool; the control-plane CPU-limit fix was applied. Historical record.
 **Audience:** Jeremy (platform owner)
-**Related:** [`08-provisioning-latency-approach.md`](./08-provisioning-latency-approach.md) · [`01-backend-architecture.md`](./01-backend-architecture.md)
+**Related:** [`provisioning-latency-approach.md`](./provisioning-latency-approach.md) · [`hot-pool-design.md`](../reference/hot-pool-design.md) · [`backend-architecture.md`](../reference/backend-architecture.md)
+
+> **Update (2026-07-02).** This spike's conclusions were adopted: the pool is
+> **hot** (pods kept running, assignment is a metadata change), and the vcluster
+> control-plane CPU limit was raised to a burstable **200m request / 2000m limit**
+> in the composition. See [`hot-pool-design.md`](../reference/hot-pool-design.md).
 
 ---
 
@@ -92,7 +97,7 @@ cold boot and any restart materially.
   already-Ready vcluster is a metadata change (stamp owner, start TTL), which is
   sub-second and comfortably inside 15 s. This is the design that meets the target.
 - **Idle cost is affordable at the stated scale.** With ~5 arrivals/hour and a
-  budget of 10 warm sandboxes ([`08`](./08-provisioning-latency-approach.md) §2.2),
+  budget of 10 warm sandboxes ([`08`](./provisioning-latency-approach.md) §2.2),
   keeping ~2–3 vclusters hot is trivial headroom — the paused pool's main selling
   point (lower idle cost) isn't needed here.
 - **Raise the control-plane CPU limit regardless** (from 200m). It cuts cold boot
@@ -107,7 +112,7 @@ cold boot and any restart materially.
 ## 5. Bonus: partial answer to the cold-path gate
 
 This spike incidentally informs the *other* open gate in
-[`08`](./08-provisioning-latency-approach.md) (§2.1 — "where does the 10+ minutes
+[`08`](./provisioning-latency-approach.md) (§2.1 — "where does the 10+ minutes
 go?"). The vcluster Helm install itself was **fast (~10 s to `deployed`)**, and the
 control-plane cold boot is **~77 s when given CPU** (223 s when throttled). None of
 that is close to 10 minutes. So the production end-to-end time is dominated **not**

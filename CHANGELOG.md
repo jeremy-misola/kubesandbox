@@ -2,15 +2,48 @@
 
 Historical revision log for the backend, auth, and frontend build-out. This is
 a record of *how* the current state (documented in
-`docs/04-backend-handoff.md` and `docs/06-frontend-architecture.md`) was
+`docs/history/backend-handoff.md` and `docs/reference/frontend-architecture.md`) was
 reached — not itself required reading to understand where the project is
 today. Newest first.
 
 ---
 
+## rev 21 — 2026-07-02 — Backend cleanup: split the god-file, dedupe handlers, fix nits
+
+Non-functional refactor of the backend — no behaviour change, existing tests
+pass unchanged under `-race`, `go vet` and `gofmt` clean. The 674-line
+`internal/kubernetes/sessions.go` was doing five jobs; split it into
+`service.go` (types, constructor, `ToSession`, shared helpers), `assign.go`,
+`warm.go`, `markers.go`, and `crud.go`. The two hand-rolled `unstructured`
+claim builders (`CreateWarm`, `Create`) now share a `newClaimObject` +
+`defaultResourcesMap` helper instead of repeating the apiVersion/kind/metadata/
+spec scaffold.
+
+Handler duplication removed: the ~15 repeated `gin.H{"error", "message"}`
+blocks now go through a single `respondError` helper (new `errors.go`), and the
+two SSE handlers share `sseFlusher`/`writeSSEHeaders`/`ssePing` — which also
+fixed an inconsistency where `Events` set stream headers inline while
+`QueueEvents` used a helper.
+
+Three correctness nits closed along the way: `POOL_ENABLED` now parses via
+`strconv.ParseBool` (so `1`/`TRUE` work, not just exact `true`); `hostOf` uses
+`url.Hostname()` (correct for IPv6 / bracketed hosts) instead of splitting on
+`:`; and `ParseIDTokenClaims` now rejects a token whose `exp` is in the past
+(a missing `exp` is still tolerated for issuers that omit it — the transport is
+still the trust anchor, signature/JWKS validation is intentionally skipped).
+
+Comments were pruned of internal-only references a new reader can't resolve
+(`G1`–`G4`, `docs/NN §X`, `Phase A–E`, `Option B`, the 2026-06-24 post-mortem
+tag) and of obvious restatements; the genuine security rationale (the OAuth
+login-CSRF nonce binding) and concise godoc were kept. Net: one 674-line file
+became nine files averaging ~140 lines; backend non-test source dropped
+slightly to ~2,620 lines. Deferred (flagged, not done): replacing the direct
+API `LIST` calls in the pool manager and TTL controller with an informer-backed
+lister — the real efficiency win, but a larger change left to its own rev.
+
 ## rev 20 — 2026-07-02 — Hot warm-pool: sub-second assignment instead of cold builds
 
-Implements docs/10 (design: docs/11). `POST /api/sessions` now hands over a
+Implements docs/history/hot-pool-implementation-brief.md (design: docs/reference/hot-pool-design.md). `POST /api/sessions` now hands over a
 pre-provisioned, already-Ready sandbox by mutating its claim (owner, pool
 label, `spec.expiresAt = now + ttl`) under optimistic concurrency — measured
 sub-second on prod-k3s vs the former 10+ minute cold build. A background
@@ -25,13 +58,13 @@ ConfigMap (`sbxowner-{hash}`), released on delete/TTL-reap. Profiles removed
 (`spec.expiresAt` added to the XRD, round-tripped to `status.expiresAt`;
 sweep prefers it and skips unclaimed members).
 
-Cold-path gate (docs/08 §6) closed with a measured breakdown of one live
+Cold-path gate (docs/history/provisioning-latency-approach.md §6) closed with a measured breakdown of one live
 provision (9 m 33 s end-to-end): ~4 m 10 s vcluster boot at the old 200m CPU
 limit (fixed: burstable 200m/2000m), 2 m 00 s kubelet mount-retry backoff on
 the kubeconfig Secret (residual), 3 m 16 s provider-kubernetes poll lag on
 the shell pod (fixed: `watch: true`). Orchestration itself is ~10 s. Expected
 refill after fixes: ~2–4 min. All test resources torn down; unit tests incl.
-concurrency (-race) pass. Not yet deployed — see docs/11 §6 deploy checklist.
+concurrency (-race) pass. Not yet deployed — see docs/reference/hot-pool-design.md §6 deploy checklist.
 
 Frontend adapted to the new contract in the same rev: profiles removed from
 schemas and UI (ProfilePicker deleted; lifetime is the only knob), POST
@@ -43,7 +76,7 @@ hand-over. Copy no longer promises minutes-long provisioning anywhere.
 ## rev 19 — 2026-07-02 — Embedded terminal: ttyd now runs inside the SPA
 
 The terminal no longer hands off to a bare ttyd tab — it renders inside the
-site, themed to match. The constraint (docs/06 §4.4): `/s/{id}` is guarded by
+site, themed to match. The constraint (docs/reference/frontend-architecture.md §4.4): `/s/{id}` is guarded by
 the backend's own OIDC flow, and Authentik's login page refuses to be framed.
 So the SPA **probes** the terminal URL with `fetch(…, { redirect: "manual" })`
 — 200 means the session cookie is warm and the iframe embeds immediately;
@@ -193,12 +226,12 @@ Two unrelated correctness fixes:
 
 1. **`StatusBadge` now speaks the pipeline's exact phase vocabulary** —
    `Pending` / `Provisioning` / `Ready` / `Error` / `Unknown`, as emitted by
-   `kubesandbox-session-composition.yaml` and confirmed live (docs/07 §3.4)
+   `kubesandbox-session-composition.yaml` and confirmed live (docs/history/frontend-implementation-plan.md §3.4)
    — replacing substring heuristics (`includes("fail")`,
    `includes("terminat")`…). Deletion never surfaces as a phase (the claim
    just disappears), so the dead "Terminating" branch is gone; unrecognized
    future phases render verbatim with in-progress styling rather than being
-   hidden. docs/06 + docs/07 updated to match.
+   hidden. docs/reference/frontend-architecture.md + docs/history/frontend-implementation-plan.md updated to match.
 
 2. **Concurrent sessions were fighting over one HTTPRoute.** The composition
    patched the *Object* name per-session but not the inner HTTPRoute
@@ -212,13 +245,13 @@ Two unrelated correctness fixes:
 
 Files: `frontend/src/components/StatusBadge.tsx`,
 `kubesandbox-charts/kubesandbox-backend/templates/kubesandbox-session-composition.yaml`,
-`docs/06-frontend-architecture.md`, `docs/07-frontend-implementation-plan.md`.
+`docs/reference/frontend-architecture.md`, `docs/history/frontend-implementation-plan.md`.
 
 ---
 
 ## rev 14 — 2026-07-01 — SPA auth: refresh tokens replace broken cross-site silent renew
 
-Fixed two live SPA auth bugs, both rooted in the same design flaw: docs/06
+Fixed two live SPA auth bugs, both rooted in the same design flaw: docs/reference/frontend-architecture.md
 §4.1's "in-memory tokens + iframe silent renew" posture doesn't work when the
 app (`kubesandbox.com`) and Authentik (`auth.jeremymr.dev`) are **cross-site**.
 Authentik's `SameSite=Lax` session cookie is never sent inside the hidden
@@ -246,7 +279,7 @@ Symptoms fixed:
    return; the callback-route early return itself is kept (it prevents a
    redundant `signinSilent()` racing `completeLogin()`).
 
-New token posture (revises docs/06 §4.1/§5):
+New token posture (revises docs/reference/frontend-architecture.md §4.1/§5):
 - **`offline_access` scope + refresh tokens.** Renewal is now a direct fetch
   to the token endpoint — no iframe, no third-party cookies. Requires the
   `offline_access` scope mapping on the Authentik provider (see Terraform
@@ -293,7 +326,7 @@ end. The `/api` JWT policy now trusts the SPA's public client, and the frontend
 Authentik provider was fixed to actually publish a JWKS.
 
 Frontend design + scaffold:
-- **`docs/06-frontend-architecture.md`** (new) — living design for G5: scope,
+- **`docs/reference/frontend-architecture.md`** (new) — living design for G5: scope,
   lean stack (React 19 + Vite + TS + Tailwind/shadcn + TanStack Query + Zod +
   oidc-client-ts), route map, the two auth surfaces (`/api` bearer vs. `/s/{id}`
   backend-owned OIDC), SSE via fetch-stream, runtime-config shim, and open
@@ -332,7 +365,7 @@ out the 300s Envoy JWKS cache (or restart the kubesandbox proxy pod) → re-logi
 in the SPA for a fresh RS256 token. Not yet verified live (pending sync).
 
 Files:
-- `kubesandbox/docs/06-frontend-architecture.md` — new design doc.
+- `kubesandbox/docs/reference/frontend-architecture.md` — new design doc.
 - `kubesandbox/frontend/**` — new SPA scaffold.
 - `kubesandbox/kubesandbox-charts/kubesandbox-backend/templates/securitypolicy-api.yaml`
   — `additionalProviders` range on the JWT policy.
@@ -489,7 +522,7 @@ Wires the Terraform provisioning layer to the G2 Option B implementation.
 
 ## rev 8 — G2 Options A+B — backend-owned session auth
 
-Implements the redesign from the rev 7 spike (see `docs/05-g2-spike-findings.md`).
+Implements the redesign from the rev 7 spike (see `docs/history/g2-session-auth-spike.md`).
 Chart bumped `0.1.8 → 0.1.9`. `sessionAuth.enabled` stayed default-off until
 the pre-flight checklist was complete (secrets present, endpoints confirmed —
 completed by rev 9–11).
@@ -530,7 +563,7 @@ Envoy Gateway v1.7.1**: `SecurityPolicy` attaches same-namespace only (sessions
 are per-namespace), and ext-authz fires before OIDC can complete the login —
 an unauthenticated request gets `401` from `/authz` instead of a login
 redirect. Full write-up and the option analysis that led to rev 8's design:
-[`docs/05-g2-spike-findings.md`](./docs/05-g2-spike-findings.md).
+[`docs/history/g2-session-auth-spike.md`](./docs/history/g2-session-auth-spike.md).
 
 ---
 

@@ -1,19 +1,26 @@
 # KubeSandbox — Frontend Implementation Plan (G5)
 
-**Status:** in progress — scaffold built; SPA→`/api` JWT trust now wired in prod
-(rev 13, see CHANGELOG) but pending live confirmation; auth-bootstrap silent
-renew bug found and fixed this pass (§1.1, §5)
-**Audience:** whoever finishes the frontend SPA (incl. future me)
-**Last updated:** 2026-07-01
-**Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`02-auth-design.md`](./02-auth-design.md) · [`03-implementation-plan.md`](./03-implementation-plan.md) · [`04-backend-handoff.md`](./04-backend-handoff.md) · [`06-frontend-architecture.md`](./06-frontend-architecture.md)
-**Design system:** [`../.github/agents/design-principles.md`](../.github/agents/design-principles.md)
+**Status:** delivered — the SPA is built and live on prod-k3s. Historical plan, kept for context.
+**Audience:** whoever maintains the frontend SPA (incl. future me)
+**Last updated:** 2026-07-02
+
+> **Update (2026-07-02).** The SPA is complete and live: sign-in, dashboard,
+> create, live status/queue over SSE, and terminal hand-off all work end-to-end.
+> SPA→`/api` JWT trust is confirmed, and the token posture settled on
+> `sessionStorage` + refresh tokens (no cross-site silent-renew iframe). The plan
+> also predates two shipped changes: **profiles were removed** (create takes only
+> `ttlMinutes`) and a **queue** was added for a full pool (`202` +
+> `/api/queue/events`). For the as-built SPA see
+> [`frontend-architecture.md`](../reference/frontend-architecture.md).
+**Related:** [`backend-architecture.md`](../reference/backend-architecture.md) · [`auth-design.md`](../reference/auth-design.md) · [`implementation-plan.md`](./implementation-plan.md) · [`backend-handoff.md`](./backend-handoff.md) · [`frontend-architecture.md`](../reference/frontend-architecture.md)
+**Design system:** [`../../.github/agents/design-principles.md`](../../.github/agents/design-principles.md)
 
 ---
 
 ## 0. How to read this plan
 
 This is a **gap-to-done** plan, not a from-scratch build guide. The frontend
-scaffold described in [`06-frontend-architecture.md`](./06-frontend-architecture.md)
+scaffold described in [`frontend-architecture.md`](../reference/frontend-architecture.md)
 **already exists** under `frontend/` and **typechecks clean** (`npx tsc
 --noEmit` → exit 0). The data/auth/SSE layer, all six pages, the hooks, the
 Docker/nginx/runtime-config machinery, and the CI contract are in place.
@@ -149,7 +156,7 @@ rollout lands.
 **Acceptance (still open):** with a real SPA token,
 `curl -H "Authorization: Bearer <token>" https://kubesandbox.com/api/sessions`
 → `200`, and the backend logs show `X-User-Id` populated (arch §8 item 3). This
-is also tracked as the last open item in `docs/02-auth-design.md` §7.
+is also tracked as the last open item in `docs/reference/auth-design.md` §7.
 
 ---
 

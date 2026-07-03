@@ -47,7 +47,7 @@ spec:
         more than one Authentik client. The SPA logs in as the public
         `kubesandbox-frontend` client, whose tokens carry a different `iss` than
         the backend client; adding it here stops those valid tokens 401-ing
-        (docs/06-frontend-architecture.md §4.1 / action item #2). Each entry:
+        (docs/reference/frontend-architecture.md §4.1 / action item #2). Each entry:
         { name, issuer, jwksUri, audiences?, claimToHeaders? }.
       */}}
       {{- range .Values.authentication.jwt.additionalProviders }}

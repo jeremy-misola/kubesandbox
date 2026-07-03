@@ -160,7 +160,7 @@ spec:
                         # Burstable shape (hot-pool Phase A): the control plane is
                         # CPU-hungry only during boot. The 200m limit used here
                         # previously inflated cold boot ~6x (196s vs 33s of
-                        # control-plane boot — see docs/09). A generous limit with a
+                        # control-plane boot — see docs/history/pause-resume-spike.md). A generous limit with a
                         # modest request keeps steady-state cheap while letting boot
                         # (and therefore pool refill) run fast.
                         resources:
@@ -313,7 +313,7 @@ spec:
                 providerConfigRef:
                   name: kubernetes-incluster
                 # Watch the pod instead of polling it (cold-path measurement,
-                # docs/11 §3): with watch:false, provider-kubernetes only
+                # docs/reference/hot-pool-design.md §3): with watch:false, provider-kubernetes only
                 # re-observes the pod on its poll interval (~10 min), so
                 # status.workspaceReady — and therefore pool-member
                 # availability — lagged the pod's actual Running state by up

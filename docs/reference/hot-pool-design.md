@@ -1,8 +1,8 @@
 # KubeSandbox — Hot Warm-Pool: Implemented Design
 
-**Status:** implemented (2026-07-02) — closes the brief in [`10-hot-pool-implementation-brief.md`](./10-hot-pool-implementation-brief.md)
+**Status:** implemented (2026-07-02) — closes the brief in [`hot-pool-implementation-brief.md`](../history/hot-pool-implementation-brief.md)
 **Audience:** Jeremy + future maintainers
-**Related:** [`08-provisioning-latency-approach.md`](./08-provisioning-latency-approach.md) · [`09-pause-resume-spike.md`](./09-pause-resume-spike.md) · [`01-backend-architecture.md`](./01-backend-architecture.md)
+**Related:** [`provisioning-latency-approach.md`](../history/provisioning-latency-approach.md) · [`pause-resume-spike.md`](../history/pause-resume-spike.md) · [`backend-architecture.md`](./backend-architecture.md)
 
 ---
 
@@ -18,7 +18,7 @@
 > put on a synchronous cold build. Profiles are **removed** (single sandbox
 > type, per sign-off). The vcluster control-plane CPU limit was raised to a
 > burstable **200m request / 2000m limit** (the old flat 200m limit inflated
-> boot ~6×, docs/09).
+> boot ~6×, docs/history/pause-resume-spike.md).
 
 ---
 
@@ -27,7 +27,7 @@
 | Decision | Value |
 |---|---|
 | Control-plane CPU shape | request **200m**, limit **2000m** (burstable; spike-tested) |
-| Default warm target | **2** (docs/08: drain probability negligible at ~5/hour) |
+| Default warm target | **2** (docs/history/provisioning-latency-approach.md: drain probability negligible at ~5/hour) |
 | Concurrent ceiling | **60** (warm + live, from sign-off) |
 | Max warm age | **24 h** — older unclaimed members are recycled, never handed out |
 | Profiles | **Removed entirely** (XRD, models, API). Single uniform shape: 500m/512Mi shell pod |
@@ -122,7 +122,7 @@ composition round-trips it onto the session namespace annotation
 (their clock hasn't started; the pool manager owns their lifecycle), and
 releases the owner's marker after reaping.
 
-## 3. Cold-path measurement (the open gate in docs/08 §6)
+## 3. Cold-path measurement (the open gate in docs/history/provisioning-latency-approach.md §6)
 
 Measured 2026-07-02 on prod-k3s, one cold provision of a warm-style claim
 (`s-pool-t01` in throwaway namespace `kubesandbox-hotpool-test`), deployed
@@ -159,7 +159,7 @@ orchestration itself (Crossplane fan-out + Helm install take ~10 s total):
 **Refill estimate after fixes:** ~10 s orchestration + ~80 s vcluster boot +
 ≤2 min mount backoff + near-zero observation lag ≈ **2–4 minutes** per member.
 At ~5 arrivals/hour against target 2, drain probability stays negligible
-(docs/08 §4).
+(docs/history/provisioning-latency-approach.md §4).
 
 **Post-deploy addendum (2026-07-02, first production fill).** The first
 create after deploy (3:04 PM) was queued and admitted at 3:12 — the user
@@ -259,4 +259,113 @@ detail-page banner). `tsc --noEmit` and `vite build` pass.
   reports the Crossplane Object wrapper name (`…-namespace` suffix), not the
   actual namespace name. Cosmetic; the URL/id derivation doesn't use it.
 - **Init-container CPU** (~30–50 s of every vcluster boot at 100m) is the next
-  refill lever (docs/09 §4); not in scope here.
+  refill lever (docs/history/pause-resume-spike.md §4); not in scope here.
+
+## 7. Pool sizing & the control-plane capacity ceiling (2026-07-02 incident)
+
+**TL;DR:** the binding constraint on this cluster is **control-plane CPU, not
+worker capacity**. Each warm member is a full vcluster whose API server is a
+persistent client of the host etcd/apiserver, and the control plane is three
+**2-vCPU** k3s server/etcd nodes (**~6 vCPU total** for etcd + apiserver +
+scheduler + controller-manager). Raising `pool.targetWarm` from 2 to 50
+(`maxTotal` 60→100) took the whole cluster down. Even the recovered steady
+state of **10 warm members keeps the control plane saturated and flapping**.
+Keep `targetWarm` small (single digits) until the control plane is scaled up.
+
+### What happened
+
+`pool.targetWarm: 50` was set in the values override. The pool manager did
+exactly what it is designed to do — refill to target within `maxTotal` — and
+began provisioning ~50 vclusters. Two properties turned that into an outage:
+
+1. **No concurrency cap on refill.** The manager refills "to target within
+   `maxTotal`" but nothing limits *how many boot simultaneously*. At target 2
+   this never mattered; at target 50 it launches ~50 concurrent vcluster boots.
+2. **Boot is the CPU-hungry phase, and the control-plane CPU shape is
+   burstable 200m/2000m** (§1, raised deliberately in this change to speed
+   boot). ~50 API servers each bursting toward 2000m at once demanded roughly
+   an order of magnitude more CPU than the cluster has.
+
+Observed failure cascade (prod-k3s):
+
+- All three control-plane nodes pinned at **97–100% CPU** (allocatable is
+  `cpu: "2"` each — confirmed on the Node objects).
+- Control-plane nodes **flapped `NodeNotReady`** in repeated waves (kubelet
+  can't heartbeat when the k3s server process is CPU-starved); the apiserver
+  intermittently returned `apiserver not ready` / `connection refused`.
+- **Crossplane providers melted:** floods of `CannotConnectToProvider`,
+  `CannotCreateExternalResource`, `CannotObserveExternalResource`, and
+  `ProviderConfigUsage … already exists` as ~50 compositions reconciled
+  against a starved control plane.
+- Boot chain broke: `FailedMount` for `vcluster-config` / `vcluster-kubeconfig`
+  ("secret not found"), `ClusterIPNotAllocated`, `FailedScheduling`,
+  `ProvisioningFailed`. Members never reached Ready.
+- Collateral damage across the homelab: argocd, immich, cloudflared, otel,
+  metallb, mimir, prometheus, etc. threw `Unhealthy` / `NodeNotReady` because
+  they share the same control plane.
+
+### Why the control plane is the ceiling (and workers are not)
+
+On k3s, **etcd and the apiserver run inside the k3s *server* process on the
+control-plane nodes** — not as scheduled pods with resource requests. So a
+"pod requests vs allocatable" analysis *understates* the problem: the killer
+load (watches, lists, and etcd writes from N vcluster control planes) never
+appears as a pod request, and it lands entirely on the 6-vCPU control plane.
+Every warm vcluster is its own mini-apiserver continuously syncing against the
+host — the cost scales with **member count**, and it is paid on the control
+plane regardless of how idle the member is. Workers only carry the vcluster
+syncer + shell pods (~220m CPU / ~300Mi each when idle) and had ample headroom
+(19–52% CPU) throughout.
+
+### Post-recovery measurement (10 idle warm members)
+
+After the control-plane VMs were restarted (which cleared all prior state —
+verified: composite count == namespace count, no orphaned `XKubeSandboxSession`
+or stuck-Terminating namespaces), the pool refilled to a stable **10 members,
+all `SYNCED=True / READY=True`, `pool=available`**. That is a *clean* steady
+state, yet the control plane was still unhealthy:
+
+- Control-plane nodes flapped `NodeNotReady` in recent waves; CP-hosted system
+  pods (metrics-server, coredns, local-path-provisioner) had restarted.
+- `metrics-server` scrapes the **workers** fine but **cannot scrape any of the
+  three CP kubelets** (they read `<unknown>` in `nodes top`) — i.e. the CP
+  kubelets are too starved to answer, which is real distress, not a metrics
+  bug.
+
+Conclusion: **10 warm vcluster control planes, on top of the existing homelab
+workload, already saturate the 6-vCPU control plane.** The realistic ceiling
+for *idle* warm members on the current hardware is well under 10; the ceiling
+for *active* sessions (which add in-vcluster workloads and much higher API
+churn) is lower still — likely low single digits to low-teens, not 50.
+
+### Guidance
+
+- **Keep `pool.targetWarm` in the low single digits** on the current
+  3× 2-vCPU control plane. The design default (2, with a 60 concurrent ceiling)
+  reflects the real capacity; treat that as the safe envelope, not a starting
+  point to scale up from without hardware changes.
+- **Do not size the pool from worker headroom.** Workers being half-idle does
+  not mean there is room — the constraint is control-plane CPU / etcd.
+- **To actually raise the ceiling (highest leverage first):**
+  1. **Bigger control-plane nodes** (2 → 4/8 vCPU). Single highest-impact
+     change; the limit is etcd/apiserver, so this is what moves it.
+  2. **Cheaper per-sandbox isolation** — k3s/k0s-in-a-pod, or namespace-only
+     isolation — so each session is not a full extra apiserver against host
+     etcd.
+  3. Only then does worker capacity matter.
+
+### Follow-up work (not yet implemented)
+
+- **Add a concurrency cap on pool refill** — provision at most *N* members at a
+  time (e.g. 2–3), not "all the way to target at once." A burstable 2000m
+  control-plane CPU limit and a large target are fundamentally unsafe together
+  without this throttle; it is the direct fix for the stampede in §7.
+- **Consider a hard, hardware-aware upper bound** on `targetWarm`/`maxTotal`
+  (or a guard that refuses to fill beyond a control-plane-CPU budget) so a
+  values override cannot request a target the control plane cannot sustain.
+- **Recovery runbook:** if a large target has wedged the control plane, lower
+  `targetWarm`, then delete a batch of warm members **by their
+  `KubeSandboxSession` claims** (not the namespaces — the namespace is a
+  Crossplane-composed resource and will be recreated; deleting the claim
+  cascades to all composed resources). Once the apiserver is responsive, the
+  pool manager's trim step takes the rest down to target on its own.

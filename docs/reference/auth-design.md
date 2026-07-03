@@ -1,8 +1,8 @@
 # KubeSandbox — Authentication & Authorization Design
 
-**Status:** living design (updated 2026-07-01 — G1 + G2 live and verified on prod-k3s)
+**Status:** living design (updated 2026-07-02 — G1–G5 live and verified on prod-k3s)
 **Audience:** platform engineers wiring auth for KubeSandbox
-**Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`03-implementation-plan.md`](./03-implementation-plan.md)
+**Related:** [`backend-architecture.md`](./backend-architecture.md) · [`frontend-architecture.md`](./frontend-architecture.md)
 
 ---
 
@@ -43,7 +43,10 @@ The repo provisions Authentik OIDC clients with the Terraform provider, two ways
   - Writes **`kubesandbox-backend-client-secret`** (namespace `kubesandbox`) with
     keys: `client-id`, `client-secret`, `session-secret`, `issuer-url`, `jwks-uri`.
 - **Frontend instance** — `kubesandbox-frontend/.../kubesandbox-frontend-auth.yaml`:
-  creates the `kubesandbox-frontend` OIDC client. Waiting for G5 (frontend SPA).
+  creates the **public** `kubesandbox-frontend` OIDC client (Auth Code + PKCE, no
+  secret in the browser) used by the SPA. Live (G5). Its issuer is trusted as an
+  additional provider on the `/api` JWT policy so SPA-minted tokens are accepted
+  (see §3.1).
 
 ---
 
@@ -53,21 +56,19 @@ Two auth surfaces, handled differently:
 
 ### 3.1 `/api` — JWT bearer (G1/G4)
 
-The backend's session control API (`POST/GET/DELETE /api/sessions`, SSE) is
-protected by a JWT `SecurityPolicy` (`securitypolicy-api.yaml`) on Envoy Gateway.
+The backend's session control API (`POST/GET/DELETE /api/sessions`, the queue
+endpoints, and the SSE streams) is protected by a JWT `SecurityPolicy`
+(`securitypolicy-api.yaml`) on Envoy Gateway.
 
-- Validates Authentik-issued JWTs against the provider JWKS endpoint
-  (`https://auth.jeremymr.dev/application/o/kubesandbox-backend/jwks/`).
-- Maps claims to identity headers via `claimToHeaders`:
+- Validates Authentik-issued JWTs against the provider JWKS endpoint.
+- The SPA is a **public client** with a *different* issuer than the backend
+  client, so the policy trusts **both providers** (`additionalProviders` in the
+  chart): the backend `kubesandbox-backend` issuer and the SPA's
+  `kubesandbox-frontend` issuer. Envoy accepts a token matching any provider.
+- Maps claims to identity headers via `claimToHeaders` (on every provider):
   `sub → X-User-Id`, `email → X-User-Email`, `name → X-User-Name`, `groups → X-User-Groups`.
 - Missing/invalid token → `401 "Jwt is missing"`.
 - Backend reads identity from these headers (trusts the gateway-injected values).
-
-> **Still to verify (G4):** that a *valid* Authentik bearer token yields `200`
-> *and* the `X-User-*` headers actually reach the backend. The policy is Accepted
-> and enforcing (invalid/missing → 401 confirmed), but a full round-trip with a
-> real token needs a browser login. Verify with:
-> `curl -H "Authorization: Bearer <token>" https://kubesandbox.com/api/sessions`
 
 ### 3.2 `/s/{id}` — Backend-owned OIDC/PKCE + ext-authz (G2)
 
@@ -81,12 +82,16 @@ Browser hits kubesandbox.com/s/{id}
   ▼ Envoy SecurityPolicy: ext-authz → GET backend /authz
       │
       ├─ No/invalid session cookie
-      │     backend: generate PKCE, sign state JWT, return 302 → Authentik
+      │     backend: generate PKCE + a random nonce, sign a state token
+      │       (code_verifier + originalURL + nonce), set a short-lived nonce
+      │       cookie, return 302 → Authentik
       │     Envoy: forward 302 to browser
       │     Browser: login at auth.jeremymr.dev/application/o/authorize/
       │     Authentik: redirect to kubesandbox.com/oauth2/callback?code=...&state=...
       │     Backend (/oauth2/callback route):
-      │       verify state JWT → extract code_verifier + originalURL
+      │       verify state token → extract code_verifier + originalURL + nonce
+      │       verify the nonce cookie matches the state nonce, then clear it
+      │         (OAuth login-CSRF protection — see below)
       │       POST token endpoint /application/o/token/ → id_token
       │       parse id_token claims (sub, email, name) — no JWKS validation,
       │         trusted via server-to-server TLS
@@ -103,13 +108,24 @@ Browser hits kubesandbox.com/s/{id}
             backend error → 503 (fail closed)
 ```
 
+**Login-CSRF protection (nonce binding).** The signed state is otherwise
+self-contained and portable, so an attacker could complete their own login and
+hand the resulting `code`+`state` pair to a victim (e.g. a crafted link to
+`/oauth2/callback`) to silently log the victim's browser in *as the attacker*.
+To stop this, the `/authz` redirect also sets a short-lived **nonce cookie** whose
+value is embedded in the signed state; `/oauth2/callback` requires both copies to
+match (and clears the cookie unconditionally). The nonce cookie can only have been
+set by the browser that started the flow, so a mismatch means the callback wasn't
+triggered by that browser. The cookie is `SameSite=Lax` so it survives Authentik's
+cross-site top-level redirect back to the callback.
+
 **Why Option A+B (not the original Option A):** The original plan was edge OIDC →
 JWT `claimToHeaders` → ext-authz in one policy. This doesn't work on
 Envoy Gateway v1.7.1: (a) `SecurityPolicy` is same-namespace only, but sessions
 were per-namespace; (b) ext-authz fires before the OIDC filter can log the user
 in. The redesign moves HTTPRoutes to the shared `kubesandbox` namespace (Option A)
 and gives the backend full ownership of the OIDC flow (Option B), eliminating both
-constraints. See [`05-g2-spike-findings.md`](./05-g2-spike-findings.md) for the
+constraints. See [`g2-session-auth-spike.md`](../history/g2-session-auth-spike.md) for the
 full spike write-up.
 
 ---
@@ -139,8 +155,8 @@ Authentik's `sub_mode: hashed_user_id` means the `sub` claim equals the user's
 `ea74e1d87924d4a0ff660caa375ce9538c83db3d0152e87082c4414140b1e568`).
 
 This is **not** the UUID or email. The backend stores this as `ownerRef` on the
-claim. The frontend (G5) must use the `sub` from the JWT, not the email, when
-creating sessions via `/api`.
+claim. The frontend uses the `sub` from the JWT (not the email) as the identity
+key, so ownership lines up across `/api` and `/authz` without translation.
 
 To look up a user's `sub` via the Authentik API:
 ```
@@ -205,7 +221,9 @@ curl -s "https://auth.jeremymr.dev/api/v3/core/users/?search=<username>" \
 - [x] **`/oauth2/callback` route** — unauthenticated HTTPRoute for login completion. **Live (rev 8/rev 11).**
 - [x] **Negative test:** user B → 403 on user A's session. **Confirmed on prod-k3s (rev 11).**
 - [x] **WebSocket upgrade** (ttyd) verified end-to-end through ext-authz. **Confirmed (rev 11).**
-- [ ] **JWT with real bearer (G4 final step):** valid Authentik token → `/api` returns `200` and `X-User-*` reach the backend. Needed before G5.
+- [x] **JWT with real bearer (G4):** valid Authentik token → `/api` returns `200` and `X-User-*` reach the backend. **Confirmed via the live SPA (G5).**
+- [x] **SPA provider trust:** the `kubesandbox-frontend` issuer is added as an additional provider on the `/api` JWT policy so public-client tokens are accepted. **Live.**
+- [x] **Login-CSRF nonce binding** on the `/s/{id}` flow. **Built and live.**
 - [ ] **Issuer split-DNS check:** confirm internal/external issuer URLs match; `BackendTLSPolicy` if internal CA. (N/A for current homelab setup — publicly-trusted cert.)
 - [ ] **Cookie lifetime ≥ max `ttlMinutes`:** default 8h / 480 min; XRD caps at 1440 min. Increase `SESSION_MAX_AGE_SECONDS` if supporting max-TTL sessions.
 
@@ -222,4 +240,4 @@ curl -s "https://auth.jeremymr.dev/api/v3/core/users/?search=<username>" \
   `backend/internal/auth/session.go`, `backend/internal/auth/oidc.go`,
   `backend/internal/api/handlers/authz.go`, `backend/internal/api/handlers/auth.go`,
   `kubesandbox-charts/kubesandbox-backend/templates/securitypolicy-session.yaml`
-- Spike findings: [`05-g2-spike-findings.md`](./05-g2-spike-findings.md)
+- Spike findings: [`g2-session-auth-spike.md`](../history/g2-session-auth-spike.md)

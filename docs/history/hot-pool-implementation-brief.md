@@ -1,8 +1,12 @@
 # KubeSandbox — Hot Warm-Pool Implementation Brief (Agent Handoff)
 
-**Status:** implementation brief (2026-07-02) — hand this to the implementing agent
+**Status:** **implemented** (2026-07-02) — the as-built result is [`hot-pool-design.md`](../reference/hot-pool-design.md). This brief is retained as the original agent handoff.
 **Audience:** the next agent + Jeremy
-**Related:** [`08-provisioning-latency-approach.md`](./08-provisioning-latency-approach.md) · [`09-pause-resume-spike.md`](./09-pause-resume-spike.md) · [`01-backend-architecture.md`](./01-backend-architecture.md) · [`04-backend-handoff.md`](./04-backend-handoff.md)
+**Related:** [`hot-pool-design.md`](../reference/hot-pool-design.md) · [`provisioning-latency-approach.md`](./provisioning-latency-approach.md) · [`pause-resume-spike.md`](./pause-resume-spike.md) · [`backend-architecture.md`](../reference/backend-architecture.md)
+
+> **Update (2026-07-02).** This brief was implemented; read
+> [`hot-pool-design.md`](../reference/hot-pool-design.md) for the delivered design and
+> live verification. The prompt below is kept verbatim as a record of the handoff.
 
 ---
 
@@ -28,11 +32,11 @@ implement**, not to re-litigate the strategy.
 Read these in order and treat them as the source of truth; if your plan conflicts
 with them, stop and raise it:
 
-1. `docs/08-provisioning-latency-approach.md` — the strategy, fixed parameters (§2.2),
+1. `docs/history/provisioning-latency-approach.md` — the strategy, fixed parameters (§2.2),
    what must be gotten right (§4), and the recommendation (§6).
-2. `docs/09-pause-resume-spike.md` — why the pool is **hot, not paused**, plus the
+2. `docs/history/pause-resume-spike.md` — why the pool is **hot, not paused**, plus the
    CPU-limit finding.
-3. `docs/01-backend-architecture.md` and `docs/04-backend-handoff.md` — how the
+3. `docs/reference/backend-architecture.md` and `docs/history/backend-handoff.md` — how the
    backend, CRD, composition, TTL sweep, and auth currently work.
 
 Then read the code you will change (verify every claim below against the actual
@@ -123,7 +127,7 @@ reviewable. Open a short design note or PR description per phase.
 
 ### 3. The one remaining open gate
 
-`docs/08` §6 still lists **"measure the cold path"** as open: the spike showed
+`docs/history/provisioning-latency-approach.md` §6 still lists **"measure the cold path"** as open: the spike showed
 vcluster boot is ~77 s tuned and the Helm install ~10 s, so the 10+ min production
 total lives in the layers around vcluster (suspected: Crossplane reconcile/poll
 intervals and the serialized namespace → vcluster → kubeconfig secret → shell-pod
@@ -147,7 +151,7 @@ how fast the pool refills, which sets how small it can safely be.
 ### 5. Guardrails
 
 - Do not implement a paused/scale-to-zero pool, per-profile pools, or vcluster
-  persistence — all explicitly rejected (`docs/08` §5.3/§5.6, `docs/09`).
+  persistence — all explicitly rejected (`docs/history/provisioning-latency-approach.md` §5.3/§5.6, `docs/history/pause-resume-spike.md`).
 - Do not touch production/live session resources during testing.
 - Keep changes reviewable and phased; land Phase A independently.
 - Where a value needs a human decision (CPU limit target, default warm count, cap,

@@ -12,7 +12,7 @@ import {
   type Session,
 } from "@/lib/schemas";
 
-// Typed client for the backend control API (docs/06 §4.5).
+// Typed client for the backend control API (docs/reference/frontend-architecture.md §4.5).
 //
 // Every request carries `Authorization: Bearer <token>` — /api has NO cookie
 // fallback (handoff §4). Responses are Zod-validated at the boundary.

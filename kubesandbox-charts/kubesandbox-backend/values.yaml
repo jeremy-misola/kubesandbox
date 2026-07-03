@@ -129,7 +129,7 @@ config:
   # TTL cleanup interval in minutes (reserved for the G3 TTL loop)
   ttlCleanupInterval: "1"
 
-# Hot warm-pool (docs/10): keep N pre-provisioned sandboxes RUNNING so a
+# Hot warm-pool (docs/history/hot-pool-implementation-brief.md): keep N pre-provisioned sandboxes RUNNING so a
 # create request is a metadata-only assignment (sub-15s) instead of a cold
 # build (10+ min). Empty pool => requests queue (202 + /api/queue/events).
 pool:
@@ -146,7 +146,7 @@ pool:
 
 # vcluster control-plane shape (patched into the composition's Release values).
 # Burstable on purpose: the API server is CPU-hungry only during boot; the old
-# flat 200m limit inflated cold boot ~6x (docs/09) and throttled pool refill.
+# flat 200m limit inflated cold boot ~6x (docs/history/pause-resume-spike.md) and throttled pool refill.
 vcluster:
   controlPlane:
     cpuRequest: 200m

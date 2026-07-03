@@ -1,12 +1,21 @@
 # KubeSandbox — Backend Handoff
 
-**Status:** active handoff
+**Status:** superseded — historical handoff, kept for context
 **Audience:** whoever picks up the backend next (incl. future me)
-**Last updated:** 2026-07-01
-**Related:** [`01-backend-architecture.md`](./01-backend-architecture.md) · [`02-auth-design.md`](./02-auth-design.md) · [`03-implementation-plan.md`](./03-implementation-plan.md) · [`05-g2-spike-findings.md`](./05-g2-spike-findings.md)
-**Full revision history:** [`../CHANGELOG.md`](../CHANGELOG.md)
+**Last updated:** 2026-07-02
+**Related:** [`backend-architecture.md`](../reference/backend-architecture.md) · [`auth-design.md`](../reference/auth-design.md) · [`hot-pool-design.md`](../reference/hot-pool-design.md) · [`g2-session-auth-spike.md`](./g2-session-auth-spike.md)
+**Full revision history:** [`../../CHANGELOG.md`](../../CHANGELOG.md)
 
 ---
+
+> **Update (2026-07-02).** The "next steps" this handoff pointed to have all landed:
+> **G3 TTL enforcement** ships as the in-process `cleanup.go` loop; the **frontend
+> SPA (G5)** is built and live; and G4 bearer trust is confirmed via the live SPA.
+> Since this handoff, the backend also gained the **hot warm-pool + assignment
+> queue** and moved one-sandbox-per-user to a **per-owner marker ConfigMap**. For
+> the current backend, read [`backend-architecture.md`](../reference/backend-architecture.md)
+> and [`hot-pool-design.md`](../reference/hot-pool-design.md); the snapshot below is
+> retained as a record of the G2 hand-off point.
 
 ## 1. Where we are
 

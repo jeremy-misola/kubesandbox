@@ -1,8 +1,28 @@
 # KubeSandbox — Implementation Plan
 
-**Status:** active plan
+**Status:** largely delivered — historical plan, kept for context
 **Audience:** Jeremy (platform owner)
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-02
+
+> **Update (2026-07-02) — what actually shipped.** G1–G5 are built and live on
+> prod-k3s: the backend control service, session ownership authz (G2, delivered
+> as **Options A+B** — backend-owned OIDC + shared-namespace routes, not the plain
+> Option A locked below), server-side TTL enforcement (G3), and the frontend SPA
+> (G5). Two decisions below were **superseded**:
+>
+> - **Session `{id}` / one-per-user.** No longer the owner-derived claim name.
+>   The hot warm-pool provisions members before an owner exists, so member names
+>   are generated (`s-pool-…`) and one-sandbox-per-user is enforced by an
+>   atomically-created **per-owner marker ConfigMap** (`sbxowner-…`). The
+>   owner-derived name (`s-{sha256(owner)[:16]}`) survives only on the
+>   pool-disabled direct-create path.
+> - **Profiles.** The `starter/standard/advanced` model was dropped: every sandbox
+>   is identical so warm members stay fungible. `ttlMinutes` is the only knob.
+>
+> TTL cleanup graduated as an in-process loop (`cleanup.go`), not a
+> `controller-runtime` controller. See [`hot-pool-design.md`](../reference/hot-pool-design.md)
+> and [`backend-architecture.md`](../reference/backend-architecture.md) for the
+> as-built system. The phased plan below is retained as a sequencing record.
 
 ### Locked decisions (2026-06-26)
 

@@ -7,7 +7,7 @@ import type { Session } from "@/lib/schemas";
 // Maps a session's phase + workspaceReady to a label + color. The phase
 // vocabulary is exactly what the pipeline emits (shell pod phase mapped in
 // kubesandbox-session-composition.yaml): Pending (backend default before the
-// pod reports), Provisioning, Ready, Error, Unknown — confirmed live, docs/07
+// pod reports), Provisioning, Ready, Error, Unknown — confirmed live, docs/history/frontend-implementation-plan.md
 // §3.4. The authoritative "usable" signal is `workspaceReady`; deletion never
 // surfaces as a phase (the claim is removed and the UI reacts via optimistic
 // removal + the SSE `deleted` event).

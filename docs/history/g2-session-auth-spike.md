@@ -1,8 +1,8 @@
 # KubeSandbox — G2 Session-Auth Spike Findings
 
-**Status:** spike complete (2026-06-27); **decision made (2026-06-26): implementing Options A + B** — see §5.
+**Status:** spike complete (2026-06-27); Options A + B **shipped and live on prod-k3s** — see §5. Historical record.
 **Audience:** Jeremy (platform owner)
-**Related:** [`02-auth-design.md`](./02-auth-design.md) · [`04-backend-handoff.md`](./04-backend-handoff.md)
+**Related:** [`auth-design.md`](../reference/auth-design.md) · [`backend-handoff.md`](./backend-handoff.md)
 
 > **TL;DR:** The G2 design as specced — *one shared SecurityPolicy on the session
 > route doing OIDC (cookie) → JWT (claimToHeaders) → ext-authz to the backend* —
@@ -87,7 +87,7 @@ But with **OIDC + ext-authz** in the same policy, the same request returns
 
 ## 4. Why the specced design fails (summary)
 
-| Assumption in `02-auth-design.md` | Reality on EG v1.7.1 |
+| Assumption in `auth-design.md` | Reality on EG v1.7.1 |
 |---|---|
 | One shared SecurityPolicy covers all sessions (path-based). | Policy is **same-namespace only**; sessions are per-namespace → needs one policy **per session namespace**. |
 | OIDC → JWT(claimToHeaders) → ext-authz delivers `X-User-*` to `/authz`. | **ext-authz runs before OIDC**, so an unauthenticated request is `401`'d before login; the chain never authenticates. |

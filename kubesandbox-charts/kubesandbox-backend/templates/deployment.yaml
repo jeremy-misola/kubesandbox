@@ -61,7 +61,7 @@ spec:
               value: {{ .Values.config.userIdHeader | quote }}
             - name: TTL_CLEANUP_INTERVAL
               value: {{ .Values.config.ttlCleanupInterval | quote }}
-            # --- Hot warm-pool (docs/10) ---
+            # --- Hot warm-pool (docs/history/hot-pool-implementation-brief.md) ---
             - name: POOL_ENABLED
               value: {{ .Values.pool.enabled | quote }}
             - name: POOL_TARGET_WARM
