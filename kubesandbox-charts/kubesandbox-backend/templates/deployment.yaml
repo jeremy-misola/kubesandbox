@@ -49,6 +49,10 @@ spec:
               value: {{ .Values.config.port | quote }}
             - name: NAMESPACE
               value: {{ .Values.config.namespace | quote }}
+            # Image the backend stamps onto every KubeSandboxSession claim.
+            # Same source (.Values.workspaceImage) as the XRD/composition defaults.
+            - name: WORKSPACE_IMAGE
+              value: {{ .Values.workspaceImage | quote }}
             - name: PUBLIC_BASE_URL
               value: {{ .Values.config.publicBaseUrl | quote }}
             - name: USER_EMAIL_HEADER

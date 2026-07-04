@@ -18,7 +18,6 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
-	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
@@ -45,7 +44,7 @@ func main() {
 		client,
 		cfg.Namespace,
 		cfg.PublicBaseURL,
-		models.DefaultWorkspaceImage,
+		cfg.WorkspaceImage,
 	)
 	svc.SetMetrics(metrics)
 

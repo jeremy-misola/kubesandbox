@@ -9,6 +9,13 @@ image:
   pullPolicy: Always
   tag: "latest"
 
+# Single source of truth for the ttyd shell (workspace) image used by every
+# sandbox. Templated into three places so a shell-image bump is a one-line
+# change here: the XRD schema default, the Crossplane composition's pod image,
+# and the backend's WORKSPACE_IMAGE env (what it stamps onto every claim).
+# Keep this tag in step with ttyd/VERSION, which drives the image build/push.
+workspaceImage: "jurassicjey/ttyd-k8s:1.0.1"
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""

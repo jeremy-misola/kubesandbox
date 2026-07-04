@@ -54,7 +54,7 @@ spec:
                   description: How long the session should live before cleanup. The backend should still enforce deletion when the TTL expires.
                 workspaceImage:
                   type: string
-                  default: jurassicjey/ttyd-k8s:1.0.1
+                  default: {{ .Values.workspaceImage }}
                   maxLength: 255
                   description: Container image used for the user workspace. It must include a web terminal server such as ttyd or code-server.
                 starterLabRef:

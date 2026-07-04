@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 )
 
 // Config is the fully-resolved backend configuration.
@@ -19,6 +21,10 @@ type Config struct {
 	Port string
 	// Namespace is where KubeSandboxSession claims are created and read.
 	Namespace string
+	// WorkspaceImage is the ttyd shell image stamped onto every session claim.
+	// Injected as WORKSPACE_IMAGE by the Helm chart (.Values.workspaceImage) so
+	// the tag lives in one place; falls back to models.DefaultWorkspaceImage.
+	WorkspaceImage string
 	// PublicBaseURL is the externally reachable origin used to build session
 	// URLs, e.g. https://kubesandbox.com -> https://kubesandbox.com/s/{id}.
 	PublicBaseURL string
@@ -144,6 +150,7 @@ func Load() Config {
 	return Config{
 		Port:             getenv("PORT", "8080"),
 		Namespace:        getenv("NAMESPACE", "playground"),
+		WorkspaceImage:   getenv("WORKSPACE_IMAGE", models.DefaultWorkspaceImage),
 		PublicBaseURL:    publicBaseURL,
 		UserEmailHeader:  getenv("USER_EMAIL_HEADER", "X-User-Email"),
 		UserNameHeader:   getenv("USER_NAME_HEADER", "X-User-Name"),
