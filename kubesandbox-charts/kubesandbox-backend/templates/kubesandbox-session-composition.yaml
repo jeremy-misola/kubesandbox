@@ -340,7 +340,7 @@ spec:
                           type: RuntimeDefault
                       containers:
                         - name: shell
-                          image: jurassicjey/ttyd-k8s:1.0.0
+                          image: jurassicjey/ttyd-k8s:1.0.1
                           imagePullPolicy: IfNotPresent
                           securityContext:
                             allowPrivilegeEscalation: false
@@ -355,7 +355,13 @@ spec:
                           command:
                             - sh
                             - -lc
-                            - cp /kubeconfig/config /tmp/kubeconfig && export KUBECONFIG=/tmp/kubeconfig && (kubectl config set-context --current --namespace=default >/dev/null 2>&1 || true) && cd /tmp && exec ttyd -W -b "$BASE_PATH" -p 8080 sh
+                            # ttyd launches an interactive `bash` (not `sh`) with
+                            # our shellrc as the rcfile, so the welcome banner and
+                            # kubectl/k -> kubecolor aliases load for every session.
+                            # The pod runs as UID 1000 with HOME=/tmp and a
+                            # read-only root, so relying on ~/.bashrc / /root/.bashrc
+                            # does NOT work — the explicit --rcfile is required.
+                            - cp /kubeconfig/config /tmp/kubeconfig && export KUBECONFIG=/tmp/kubeconfig && (kubectl config set-context --current --namespace=default >/dev/null 2>&1 || true) && cd /tmp && exec ttyd -W -b "$BASE_PATH" -p 8080 bash --rcfile /etc/kubesandbox/shellrc.sh
                           env:
                             - name: HOME
                               value: /tmp

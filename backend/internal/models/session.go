@@ -14,7 +14,7 @@ const (
 	Plural     = "kubesandboxsessions"
 
 	// DefaultWorkspaceImage matches the XRD default and the composition.
-	DefaultWorkspaceImage = "jurassicjey/ttyd-k8s:1.0.0"
+	DefaultWorkspaceImage = "jurassicjey/ttyd-k8s:1.0.1"
 
 	// TTL bounds mirror the XRD schema (minimum 15, maximum 1440, default 60).
 	DefaultTTLMinutes = 60

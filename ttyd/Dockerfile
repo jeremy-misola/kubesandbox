@@ -37,15 +37,16 @@ RUN set -eux; \
     kubecolor --kubecolor-version
 
 # --- KubeSandbox shell personalization ------------------------------------
-# Welcome banner + kubectl/k -> kubecolor aliases, sourced on every ttyd
-# shell. ttyd runs `bash` directly (interactive, non-login), which reads
-# ~/.bashrc — this appends a source line rather than replacing the file so
-# any bashrc the base image ships with (e.g. kubectl completion) still runs.
+# Welcome banner + kubectl/k -> kubecolor aliases. Loaded via an explicit
+# --rcfile rather than ~/.bashrc, because the KubeSandboxSession pod runs the
+# shell as UID 1000 with HOME=/tmp and a read-only root filesystem — so neither
+# /root/.bashrc nor a writable $HOME/.bashrc is usable. Passing the rc file
+# directly is the only reliable path, and it also works when the image is run
+# standalone via the default entrypoint below.
 COPY kubesandbox-shellrc.sh /etc/kubesandbox/shellrc.sh
 RUN set -eux; \
-    chmod 0644 /etc/kubesandbox/shellrc.sh; \
-    printf '\n# KubeSandbox: welcome banner + kubecolor aliases\n. /etc/kubesandbox/shellrc.sh\n' >> /root/.bashrc
+    chmod 0644 /etc/kubesandbox/shellrc.sh
 
 EXPOSE 8080
 
-ENTRYPOINT ["ttyd", "-W", "-p", "8080", "bash"]
+ENTRYPOINT ["ttyd", "-W", "-p", "8080", "bash", "--rcfile", "/etc/kubesandbox/shellrc.sh"]
