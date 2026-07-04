@@ -340,7 +340,7 @@ spec:
                           type: RuntimeDefault
                       containers:
                         - name: shell
-                          image: jurassicjey/ttyd-k8s:ttyd
+                          image: jurassicjey/ttyd-k8s:1.0.0
                           imagePullPolicy: IfNotPresent
                           securityContext:
                             allowPrivilegeEscalation: false
