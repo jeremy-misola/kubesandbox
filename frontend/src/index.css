@@ -20,11 +20,6 @@
      ───────────────────────────────────────────────────────────── */
 
   :root {
-    /* Fixed editorial constants (do not flip between themes). */
-    --paper: 40 20% 97%; /* #F9F8F6 warm alabaster */
-    --ink: 0 0% 10%; /* #1A1A1A rich charcoal   */
-    --gold: 46 65% 52%; /* #D4AF37 metallic gold  */
-
     /* Default to the dark interior palette (html carries .dark). */
     --background: 0 0% 10%;
     --foreground: 40 20% 97%;

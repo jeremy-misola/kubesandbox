@@ -31,7 +31,7 @@ export function SessionCard({ session }: { session: Session }) {
           </h3>
           {left && (
             <span className="shrink-0 font-mono text-xs text-accent">
-              {left} left
+              {left}
             </span>
           )}
         </div>

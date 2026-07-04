@@ -33,18 +33,16 @@ export default {
         // headlines and emphasis; Inter (humanist sans) for all body/UI;
         // JetBrains Mono reserved for terminal/data readouts.
         display: ['"Playfair Display"', "ui-serif", "Georgia", "serif"],
-        serif: ['"Playfair Display"', "ui-serif", "Georgia", "serif"],
         sans: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
       },
-      // Architectural precision: strictly rectangular. No rounded corners.
+      // Architectural precision: strictly rectangular. `rounded-full` keeps
+      // Tailwind's default (functional status dots); everything else squares.
       borderRadius: {
-        none: "0px",
         sm: "0px",
         md: "0px",
         lg: "0px",
         xl: "0px",
-        full: "9999px", // reserved only for functional status dots
       },
       letterSpacing: {
         // Wide tracking is the core editorial tell on uppercase labels.
@@ -53,11 +51,9 @@ export default {
         button: "0.2em",
       },
       boxShadow: {
-        // Subtle, layered depth — never harsh drops. Depth comes from soft
-        // ambient shadow plus a hairline inner border.
+        // Subtle, layered depth — never harsh drops.
         card: "0 2px 8px rgba(0,0,0,0.03)",
         "card-hover": "0 8px 24px rgba(0,0,0,0.07)",
-        feature: "0 4px 24px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(0,0,0,0.04)",
         hero: "0 8px 32px rgba(0,0,0,0.12)",
         cta: "0 4px 16px rgba(0,0,0,0.15)",
         "cta-hover": "0 8px 24px rgba(0,0,0,0.25)",
@@ -65,19 +61,6 @@ export default {
       transitionTimingFunction: {
         // Cinematic luxury easing — smooth, deliberate, never mechanical.
         luxury: "cubic-bezier(0.25, 0.46, 0.45, 0.94)",
-      },
-      transitionDuration: {
-        1500: "1500ms",
-        2000: "2000ms",
-      },
-      keyframes: {
-        fadeIn: {
-          "0%": { opacity: "0", transform: "translateY(6px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
-        },
-      },
-      animation: {
-        fadeIn: "fadeIn 500ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
       },
     },
   },

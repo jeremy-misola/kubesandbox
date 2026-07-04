@@ -72,7 +72,7 @@ export function TerminalPage() {
         </div>
         <div className="flex items-center gap-3">
           {left && (
-            <span className="font-mono text-xs text-accent">{left} left</span>
+            <span className="font-mono text-xs text-accent">{left}</span>
           )}
           {session && <StatusBadge session={session} />}
         </div>
