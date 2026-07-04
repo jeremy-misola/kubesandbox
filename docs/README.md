@@ -13,6 +13,7 @@ system got here and are not maintained against the current code.
 | [`reference/auth-design.md`](./reference/auth-design.md) | Authentication & authorization: `/api` JWT bearer, backend-owned OIDC/PKCE + ext-authz for `/s/{id}`, Authentik specifics, login-CSRF nonce binding. |
 | [`reference/frontend-architecture.md`](./reference/frontend-architecture.md) | The SPA: routes, data/auth layer, SSE, the create→assign-or-queue flow, terminal hand-off, runtime config, build & deploy. |
 | [`reference/hot-pool-design.md`](./reference/hot-pool-design.md) | The as-built hot warm-pool: warm members, assignment, one-per-user markers, queue, TTL, cold-path measurements, pool sizing & the control-plane ceiling. |
+| [`reference/observability-architecture.md`](./reference/observability-architecture.md) | Metrics: OpenTelemetry Go SDK instrumentation, OTLP → node-local collector → Mimir → Grafana, the metrics catalog, and the "KubeSandbox — Backend & Pool" dashboard. |
 
 ## History — point-in-time records
 

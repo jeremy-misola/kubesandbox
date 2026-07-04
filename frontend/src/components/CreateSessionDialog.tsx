@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { animate } from "animejs";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { Button } from "@/components/ui/button";
 import { TerminalChrome } from "@/components/ui/card";
 import { useCreateSession } from "@/hooks/useSessions";
+import { useDialogTransition } from "@/hooks/useDialogTransition";
 import { ApiError } from "@/lib/api";
-import { prefersReducedMotion } from "@/lib/utils";
 import { SANDBOX_RESOURCES, TTL } from "@/lib/schemas";
 
 function formatTtl(minutes: number): string {
@@ -25,45 +24,8 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
   const [ttl, setTtl] = useState<number>(TTL.default);
   const create = useCreateSession();
 
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const closingRef = useRef(false);
-
-  // Organic open: overlay fades, panel scales up from slightly below.
-  useEffect(() => {
-    if (prefersReducedMotion()) return;
-    if (overlayRef.current) {
-      animate(overlayRef.current, { opacity: [0, 1], duration: 250, ease: "out(2)" });
-    }
-    if (panelRef.current) {
-      animate(panelRef.current, {
-        opacity: [0, 1],
-        scale: [0.92, 1],
-        translateY: [24, 0],
-        duration: 400,
-        ease: "out(4)",
-      });
-    }
-  }, []);
-
-  // Mirror-image close, then unmount via onClose.
-  const requestClose = useCallback(() => {
-    if (closingRef.current) return;
-    closingRef.current = true;
-    if (prefersReducedMotion() || !panelRef.current || !overlayRef.current) {
-      onClose();
-      return;
-    }
-    animate(overlayRef.current, { opacity: 0, duration: 200, ease: "in(2)" });
-    animate(panelRef.current, {
-      opacity: 0,
-      scale: 0.94,
-      translateY: 16,
-      duration: 220,
-      ease: "in(3)",
-      onComplete: onClose,
-    });
-  }, [onClose]);
+  const { overlayRef, panelRef, requestClose: closeWith } = useDialogTransition(onClose);
+  const requestClose = () => closeWith();
 
   // Escape closes (unless a create is in flight).
   useEffect(() => {

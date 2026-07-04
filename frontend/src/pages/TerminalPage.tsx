@@ -25,16 +25,30 @@ export function TerminalPage() {
     return <NewTabHandoff id={id} />;
   }
 
+  // Mirrors the loaded layout below (header row + terminal card) so the page
+  // structure registers before the session data lands (design-principles §2).
   if (isLoading) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3">
-        <i
-          aria-hidden
-          className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary"
-        />
-        <p className="font-mono text-xs text-muted-foreground">
-          loading session…
-        </p>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+          <div className="flex items-center gap-3">
+            <Link
+              to="/dashboard"
+              className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              ← dashboard
+            </Link>
+            <div className="skeleton h-4 w-32" />
+          </div>
+          <div className="skeleton h-5 w-20 rounded-full" />
+        </div>
+        <Card className="overflow-hidden p-0">
+          <TerminalChrome title={`s/${id}`} />
+          <div className="space-y-3 p-5">
+            <div className="skeleton h-4 w-3/4" />
+            <div className="skeleton h-4 w-1/2" />
+          </div>
+        </Card>
       </div>
     );
   }

@@ -196,6 +196,11 @@ ReferenceGrant require special placement for the auth model:
    The pod is **watched** (not polled) by provider-kubernetes so
    `status.workspaceReady` tracks the pod's actual state promptly — a poll-only
    observe once lagged readiness by up to ~10 min (see [`hot-pool-design.md`](./hot-pool-design.md) §3).
+   The image (repo-root `Dockerfile`, `jurassicjey/ttyd-k8s:ttyd`) bakes in a
+   pinned `kubecolor` binary with `kubectl`/`k` aliased to it, plus a
+   KubeSandbox welcome banner sourced from `/root/.bashrc` on every shell —
+   both purely cosmetic, no effect on the hardening above (baked into image
+   layers at build time, not written at runtime).
 6. **Service `shell`** — ClusterIP, `:80 → 8080`.
 7. **HTTPRoute** — placed in the **`kubesandbox` namespace** (not the session
    namespace). Host `kubesandbox.com`, path prefix `/s/{ns}-{name}`, cross-namespace

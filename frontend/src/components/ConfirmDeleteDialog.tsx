@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
-import { animate } from "animejs";
+import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { TerminalChrome } from "@/components/ui/card";
-import { prefersReducedMotion } from "@/lib/utils";
+import { useDialogTransition } from "@/hooks/useDialogTransition";
 import type { Session } from "@/lib/schemas";
 
 /** Confirmation step before destroying a sandbox. Deletion is irreversible,
@@ -19,51 +18,8 @@ export function ConfirmDeleteDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const closingRef = useRef(false);
-
   // Same open/close motion as CreateSessionDialog for consistency.
-  useEffect(() => {
-    if (prefersReducedMotion()) return;
-    if (overlayRef.current) {
-      animate(overlayRef.current, { opacity: [0, 1], duration: 250, ease: "out(2)" });
-    }
-    if (panelRef.current) {
-      animate(panelRef.current, {
-        opacity: [0, 1],
-        scale: [0.92, 1],
-        translateY: [24, 0],
-        duration: 400,
-        ease: "out(4)",
-      });
-    }
-  }, []);
-
-  const requestClose = useCallback(
-    (after?: () => void) => {
-      if (closingRef.current) return;
-      closingRef.current = true;
-      const done = () => {
-        after?.();
-        onClose();
-      };
-      if (prefersReducedMotion() || !panelRef.current || !overlayRef.current) {
-        done();
-        return;
-      }
-      animate(overlayRef.current, { opacity: 0, duration: 200, ease: "in(2)" });
-      animate(panelRef.current, {
-        opacity: 0,
-        scale: 0.94,
-        translateY: 16,
-        duration: 220,
-        ease: "in(3)",
-        onComplete: done,
-      });
-    },
-    [onClose],
-  );
+  const { overlayRef, panelRef, requestClose } = useDialogTransition(onClose);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

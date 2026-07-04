@@ -8,6 +8,60 @@ today. Newest first.
 
 ---
 
+## rev 24 — 2026-07-03 — Dashboard live-tuned in Grafana, ttyd image gets kubecolor, dead route cleanup
+
+Grab-bag rev closing out loose ends after rev 23 and picking up a few
+uncommitted changes sitting in the working tree.
+
+**Observability rollout continued.** Backend chart re-bumped
+`0.1.15 → 0.1.16` (`cf83b27`) and a stray trailing-period typo fixed in the
+`Role`'s doc comment (`clusterrole.yaml`, `9bb5287`). The dashboard from rev 23
+was imported into Grafana and tuned live against real data — confirmed by the
+working copy of `kubesandbox-charts/kubesandbox-backend/dashboards/kubesandbox-backend-pool.json`,
+which Grafana re-exported in its newer `dashboard.grafana.app/v2` schema
+(`apiVersion`/`kind`/`metadata`/`spec`, `creationTimestamp: 2026-07-03T16:31:21Z`,
+last tuned `17:56:28Z`). **Not committed yet, and shouldn't be committed
+as-is** — the export carries live-instance metadata (`uid`, `resourceVersion`,
+`generation`, `createdBy`/`updatedBy` user hashes, `namespace: default`) that
+has no business in a chart-shipped dashboard definition. Re-export via
+Grafana's "Export for sharing externally" (or hand-strip the `metadata`
+instance fields) before committing.
+
+**Dead route removed from the frontend (`990c615`, 2026-07-02 evening —
+missed in rev 23's writeup).** `/dashboard/:id` and `SessionDetailPage` were
+cut: between the one-sandbox-per-user invariant (rev 18) and the embedded
+terminal page (rev 19), the detail page had no remaining reason to exist —
+`SessionCard`'s "details →" link and `TerminalPage`'s back-links now go
+straight to `/dashboard`. `docs/reference/frontend-architecture.md` already
+documented this (§ note: "There is no `/dashboard/:id` detail route..."),
+written in the same evening's docs pass (`fc97bcd`) — only the changelog entry
+was missing. Frontend chart bumped `0.1.9 → 0.1.10` to match (`98e4fa7`).
+
+**ttyd session image now ships `kubecolor`** (uncommitted — `Dockerfile`,
+new `kubesandbox-shellrc.sh`). The base image installs the pinned
+`kubecolor` release binary (`KUBECOLOR_VERSION=0.6.0`, arch-detected
+amd64/arm64) alongside the existing `alpine/k8s` `kubectl`, and
+`kubesandbox-shellrc.sh` is baked into the image at
+`/etc/kubesandbox/shellrc.sh` and sourced from `/root/.bashrc` (appended, not
+replacing — any bashrc the base image already ships still runs). Every
+session's terminal now opens with a KubeSandbox ASCII banner and `kubectl`/`k`
+aliased to `kubecolor` for colorized output. Purely additive to the image
+build; no chart or backend change, so no version bump needed on its own —
+bump the backend chart when this is committed and the image is rebuilt.
+
+Also uncommitted, unrelated cleanup: `frontend/tsconfig.json` — dropped the
+redundant `baseUrl: "."` (TypeScript resolves `paths` relative to the
+tsconfig's own directory without it since TS 5; `moduleResolution: "bundler"`
+never used `baseUrl` for anything else here). No behavior change,
+`tsc --noEmit` still clean.
+
+Files: `kubesandbox-charts/kubesandbox-backend/{Chart.yaml,templates/clusterrole.yaml}`,
+`kubesandbox-charts/frontend/Chart.yaml`, `Dockerfile`, `kubesandbox-shellrc.sh`
+(new, untracked), `frontend/tsconfig.json`. Dashboard JSON diff is in the
+working tree only — see caveat above before committing.
+
+---
+
 ## rev 23 — 2026-07-03 — Backend metrics instrumentation (OTel SDK) + review fixes
 
 Phases 1–2 of `docs/reference/observability-architecture.md`: the Gin backend is

@@ -1,6 +1,6 @@
 # KubeSandbox — Observability & Metrics Architecture
 
-**Status:** implemented (2026-07-03) — Phase 0 (collector → Mimir) shipped; Phases 1–2 (app instrumentation + chart wiring + dashboard JSON) implemented, pending image build/deploy
+**Status:** implemented (2026-07-03) — Phase 0 (collector → Mimir) shipped; Phases 1–2 (app instrumentation + chart wiring + dashboard JSON) implemented, chart released (`0.1.16`). Dashboard imported into Grafana and tuned live against real data — but the re-exported JSON in the working tree carries live-instance metadata (Grafana's newer `dashboard.grafana.app/v2` schema) and needs a clean re-export before it's committed back to the chart (see CHANGELOG rev 24).
 **Audience:** Jeremy + future maintainers
 **Scope:** metrics only (traces/logs already flow to Tempo/Loki). Instrumentation via the **OpenTelemetry Go SDK**, exported OTLP → node-local collector → Mimir → Grafana.
 **Related:** [`backend-architecture.md`](./backend-architecture.md) · [`hot-pool-design.md`](./hot-pool-design.md) · [`../history/provisioning-latency-approach.md`](../history/provisioning-latency-approach.md)
@@ -346,9 +346,10 @@ Candidate alerts:
    `internal/telemetry` bootstrap, `otelgin` middleware, runtime metrics.
 3. **Phase 2 — domain metrics:** ✅ **implemented 2026-07-03** — pool gauges,
    assign/claim/provision/recycle/expire counters, queue depth/wait, reconcile
-   histograms; full six-row dashboard JSON. Remaining: build/push the image,
-   deploy the chart, verify `count({__name__=~"kubesandbox_.*"})` in Explore,
-   import the dashboard.
+   histograms; full six-row dashboard JSON. Chart released (`0.1.15` →
+   `0.1.16`) and the dashboard imported into Grafana and tuned live. Remaining:
+   commit a clean (instance-metadata-stripped) re-export of the tuned
+   dashboard JSON back to the chart.
 4. **Phase 3 — alerts & polish:** `PrometheusRule`, exemplars, dashboard
    template variables.
 
