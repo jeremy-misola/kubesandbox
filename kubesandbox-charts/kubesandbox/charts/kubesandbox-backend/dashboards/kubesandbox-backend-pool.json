@@ -4,19 +4,19 @@
   "metadata": {
     "name": "kubesandbox-backend-pool",
     "namespace": "default",
-    "uid": "eb0a1666-1bbf-4fce-839c-af784f486aef",
-    "resourceVersion": "1783101388540998",
-    "generation": 14,
-    "creationTimestamp": "2026-07-03T16:31:21Z",
+    "uid": "0ad9a439-345e-402e-a850-593cb0c3a3e5",
+    "resourceVersion": "1783184871837003",
+    "generation": 2,
+    "creationTimestamp": "2026-07-04T16:55:34Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "1426346527838208"
+      "grafana.app/deprecatedInternalID": "1794830957854720"
     },
     "annotations": {
-      "grafana.app/createdBy": "user:ffq5fvhuqtedca",
+      "grafana.app/createdBy": "user:bfr40s54by03ka",
       "grafana.app/folder": "",
       "grafana.app/saved-from-ui": "Grafana v13.0.1 (a100054f)",
-      "grafana.app/updatedBy": "user:ffq5fvhuqtedca",
-      "grafana.app/updatedTimestamp": "2026-07-03T17:56:28Z"
+      "grafana.app/updatedBy": "user:bfr40s54by03ka",
+      "grafana.app/updatedTimestamp": "2026-07-04T17:07:51Z"
     }
   },
   "spec": {
@@ -66,7 +66,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_warm_available",
+                        "expr": "max(kubesandbox_pool_warm_available)",
                         "legendFormat": "available"
                       }
                     },
@@ -85,7 +85,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_warm_pending",
+                        "expr": "max(kubesandbox_pool_warm_pending)",
                         "legendFormat": "pending"
                       }
                     },
@@ -104,7 +104,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_claimed",
+                        "expr": "max(kubesandbox_pool_claimed)",
                         "legendFormat": "claimed"
                       }
                     },
@@ -221,7 +221,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_total / kubesandbox_pool_capacity_max",
+                        "expr": "max(kubesandbox_pool_total) / max(kubesandbox_pool_capacity_max)",
                         "legendFormat": "total / max"
                       }
                     },
@@ -240,7 +240,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_warm_available < on() kubesandbox_pool_target",
+                        "expr": "max(kubesandbox_pool_warm_available) < on() max(kubesandbox_pool_target)",
                         "legendFormat": "warm below target"
                       }
                     },
@@ -863,7 +863,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_queue_depth",
+                        "expr": "max(kubesandbox_queue_depth)",
                         "legendFormat": "waiters"
                       }
                     },
@@ -2334,7 +2334,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_total",
+                        "expr": "max(kubesandbox_pool_total)",
                         "legendFormat": "app total (believed)"
                       }
                     },
@@ -2451,7 +2451,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"kubesandbox\",pod=~\"kubesandbox-backend-helm-.*\",container!=\"\"}[$__rate_interval]))",
+                        "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"kubesandbox\",pod=~\".*kubesandbox-backend-.*\",container!=\"\"}[$__rate_interval]))",
                         "legendFormat": "cores"
                       }
                     },
@@ -2568,7 +2568,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "sum(container_memory_working_set_bytes{namespace=\"kubesandbox\",pod=~\"kubesandbox-backend-helm-.*\",container!=\"\"})",
+                        "expr": "sum(container_memory_working_set_bytes{namespace=\"kubesandbox\",pod=~\".*kubesandbox-backend-.*\",container!=\"\"})",
                         "legendFormat": "bytes"
                       }
                     },
@@ -2685,7 +2685,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "max(kube_pod_container_status_restarts_total{namespace=\"kubesandbox\",pod=~\"kubesandbox-backend-helm-.*\"})",
+                        "expr": "max(kube_pod_container_status_restarts_total{namespace=\"kubesandbox\",pod=~\".*kubesandbox-backend-.*\"})",
                         "legendFormat": "restarts"
                       }
                     },
@@ -3445,7 +3445,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_warm_available",
+                        "expr": "max(kubesandbox_pool_warm_available)",
                         "legendFormat": "available"
                       }
                     },
@@ -3464,7 +3464,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_warm_pending",
+                        "expr": "max(kubesandbox_pool_warm_pending)",
                         "legendFormat": "pending"
                       }
                     },
@@ -3483,7 +3483,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_claimed",
+                        "expr": "max(kubesandbox_pool_claimed)",
                         "legendFormat": "claimed"
                       }
                     },
@@ -3502,7 +3502,7 @@
                         "name": "${datasource}"
                       },
                       "spec": {
-                        "expr": "kubesandbox_pool_total",
+                        "expr": "max(kubesandbox_pool_total)",
                         "legendFormat": "total"
                       }
                     },
