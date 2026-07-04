@@ -36,6 +36,28 @@ spec:
                       name: placeholder
                       labels:
                         kubesandbox.com/managed: "true"
+                        # Pod Security Admission (host-level, defense in depth):
+                        # blocks privileged/hostNetwork/hostPID/hostPath pods from
+                        # ever being admitted in this namespace, regardless of who
+                        # or what tries to create them. Enforce is pinned to
+                        # "baseline" (not "restricted") because the vcluster
+                        # control-plane pod itself runs its syncer container as
+                        # root (runAsUser: 0, no runAsNonRoot) — verified against
+                        # ghcr.io/loft-sh/vcluster-pro:0.35.1 — which "restricted"
+                        # would reject outright and break every session.
+                        # "restricted" is still applied at audit/warn so stricter
+                        # violations show up in logs without blocking anything.
+                        # This is a second, independent layer: the primary control
+                        # is policies.podSecurityStandard on the vcluster release
+                        # below, which stops privileged/hostNetwork pods requested
+                        # *inside* the vcluster from ever syncing down to this
+                        # namespace in the first place.
+                        pod-security.kubernetes.io/enforce: baseline
+                        pod-security.kubernetes.io/enforce-version: latest
+                        pod-security.kubernetes.io/audit: restricted
+                        pod-security.kubernetes.io/audit-version: latest
+                        pod-security.kubernetes.io/warn: restricted
+                        pod-security.kubernetes.io/warn-version: latest
                       # owner/tenant are stored as ANNOTATIONS, not labels:
                       # identifiers may be emails (contain '@') or other chars
                       # that are invalid in label values. Annotations have no
@@ -183,6 +205,19 @@ spec:
                       toHost:
                         networkPolicies:
                           enabled: true
+                    # policies.podSecurityStandard is OFF by default in vcluster
+                    # (vcluster chart default: ""). With it unset, a tenant inside
+                    # their vcluster can request privileged: true, hostNetwork: true,
+                    # hostPID/hostIPC, or hostPath mounts and have it sync straight
+                    # down to a real pod on the shared k3s host — a container-escape
+                    # / cross-tenant surface, not just a challenge-content gap.
+                    # "restricted" makes the *virtual* API server itself refuse to
+                    # admit (and therefore never sync) any pod spec that doesn't meet
+                    # the Kubernetes restricted profile. This is the primary control;
+                    # the session-namespace's own baseline PSA label above is a
+                    # second, independent layer in case this is ever misconfigured.
+                    policies:
+                      podSecurityStandard: restricted
             patches:
               - type: CombineFromComposite
                 combine:
