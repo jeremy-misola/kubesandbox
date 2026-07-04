@@ -1,0 +1,14 @@
+apiVersion: v2
+name: kubesandbox
+description: Umbrella chart that deploys the KubeSandbox backend and frontend components together.
+type: application
+
+# Umbrella version. Does NOT need bumping on every change: ArgoCD sources this chart
+# from the Git branch (targetRevision), so it always renders whatever is on the branch.
+version: 0.1.0
+appVersion: "1.0.0"
+
+# Subcharts are vendored directly under charts/ (kubesandbox-backend, kubesandbox-frontend),
+# so Helm loads them automatically — no dependencies block and no `helm dependency build`.
+# Per-component values are nested under each subchart's name (see values.yaml and the
+# GitOps chart values at operators-helm/operators/kubesandbox/values/chart/values-<env>.yaml).

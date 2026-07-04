@@ -213,7 +213,7 @@ spec:
   ownerRef: ""             # set to the owner subject at assignment
   ttlMinutes: 60
   expiresAt: ""            # absolute expiry, set by the backend at assignment
-  workspaceImage: jurassicjey/ttyd-k8s:ttyd
+  workspaceImage: jurassicjey/ttyd-k8s:1.0.1   # from chart .Values.workspaceImage
   resources:
     cpu: 500m
     memory: 512Mi

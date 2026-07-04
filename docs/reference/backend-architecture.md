@@ -85,7 +85,7 @@ ahead of demand.
         │     • ResourceQuota                                                    │
         │     • vcluster (Helm Release — burstable control plane)               │
         │     • NetworkPolicy (allow envoy-gateway-system + kube-system DNS)    │
-        │     • Pod  "shell"  (ttyd, jurassicjey/ttyd-k8s:ttyd, kubeconfig mnt) │
+        │     • Pod  "shell"  (ttyd, jurassicjey/ttyd-k8s:1.0.1, kubeconfig mnt)│
         │     • Service "shell"  :80→8080                                       │
         │     • HTTPRoute  kubesandbox.com/s/{id} in kubesandbox namespace      │
         │     • ReferenceGrant in session namespace (cross-ns backendRef)       │
@@ -113,7 +113,7 @@ API group `platform.kubesandbox.com/v1alpha1`, claim kind `KubeSandboxSession`
 | `ownerRef` | string | Authentik `sub` claim (hashed uid — a 64-char hex hash, **not** email or UUID). Empty until assignment. |
 | `expiresAt` | string (date-time) | Absolute expiry, **set by the backend at assignment** (TTL starts at hand-over). Authoritative for cleanup. |
 | `ttlMinutes` | int | 15–1440, default 60. |
-| `workspaceImage` | string | Default `jurassicjey/ttyd-k8s:ttyd`. Must bundle ttyd with base-path support. |
+| `workspaceImage` | string | Default `jurassicjey/ttyd-k8s:1.0.1`. Single source: the chart's `.Values.workspaceImage`, which also feeds the XRD default and the backend's `WORKSPACE_IMAGE` env. Must bundle ttyd with base-path support. |
 | `starterLabRef` | string | Optional starter-lab/template id (field exists, unused). |
 | `resources.cpu` / `.memory` | string | Shell pod request/limit. **Uniform for every sandbox**: `500m` / `512Mi`. |
 
@@ -196,10 +196,14 @@ ReferenceGrant require special placement for the auth model:
    The pod is **watched** (not polled) by provider-kubernetes so
    `status.workspaceReady` tracks the pod's actual state promptly — a poll-only
    observe once lagged readiness by up to ~10 min (see [`hot-pool-design.md`](./hot-pool-design.md) §3).
-   The image (repo-root `Dockerfile`, `jurassicjey/ttyd-k8s:ttyd`) bakes in a
+   The image (`ttyd/Dockerfile`, `jurassicjey/ttyd-k8s:1.0.1`) bakes in a
    pinned `kubecolor` binary with `kubectl`/`k` aliased to it, plus a
-   KubeSandbox welcome banner sourced from `/root/.bashrc` on every shell —
-   both purely cosmetic, no effect on the hardening above (baked into image
+   KubeSandbox welcome banner. Both live in `/etc/kubesandbox/shellrc.sh` and
+   load via an explicit `bash --rcfile /etc/kubesandbox/shellrc.sh` — the pod
+   runs the shell as UID 1000 with `HOME=/tmp` and a read-only root, so
+   `~/.bashrc` / `/root/.bashrc` are **not** usable (an earlier `sh`-based
+   command sourced nothing, so the banner and aliases silently never loaded).
+   Both are purely cosmetic, no effect on the hardening above (baked into image
    layers at build time, not written at runtime).
 6. **Service `shell`** — ClusterIP, `:80 → 8080`.
 7. **HTTPRoute** — placed in the **`kubesandbox` namespace** (not the session
@@ -233,7 +237,7 @@ Browser ──TLS, WS──▶ Envoy Gateway
                          └─▶ HTTPRoute kubesandbox.com/s/{id} (in kubesandbox ns)
                                │
                                └─▶ shell Service (cross-ns via ReferenceGrant)
-                                     └─▶ ttyd :8080 ──▶ sh + kubectl (private vcluster)
+                                     └─▶ ttyd :8080 ──▶ bash + kubectl (private vcluster)
 ```
 
 The user never holds cluster credentials and never gets a route to the vcluster

@@ -8,6 +8,120 @@ today. Newest first.
 
 ---
 
+## rev 26 — 2026-07-04 — Frontend restyle: Luxury/Editorial design system + leanness pass
+
+Full visual re-skin of the SPA from the dark "Graphite" theme (Inter + a single
+emerald accent) to a **Luxury/Editorial** system — high-contrast serif display,
+warm monochrome palette, gold accent, squared geometry, cinematic motion. No
+behaviour, routing, data, or auth change; frontend-only, `tsc --noEmit` +
+`vite build` clean throughout.
+
+**One token contract, two palettes — theme follows the route.** The existing
+HSL design-token variables (`--background`/`--foreground`/`--primary`/`--accent`/…)
+were preserved and re-pointed rather than renamed, so component color classes
+didn't have to change. `.theme-light` renders warm alabaster paper
+(`#F9F8F6`) with charcoal ink (`#1A1A1A`) for the public landing; `.dark` is the
+system's own inverted charcoal variant for the app interior (dashboard,
+terminal, dialogs), which stays dark and legible for tooling. Gold (`#D4AF37`)
+is the single accent, used only for emphasis/hover/focus and replacing the old
+emerald pop everywhere (prompt carets, step numerals, queue position, time-left,
+focus rings). `Layout` sets the theme class from `pathname` (light on `/`, dark
+elsewhere) and adds the editorial substrate: fixed vertical gridlines + a ~2.5%
+paper-grain noise overlay. Type pairing is now Playfair Display (headlines) +
+Inter (UI) + JetBrains Mono (terminal); border radius squares everywhere except
+functional status dots; shadows are soft/layered (no harsh drops); motion uses a
+cinematic `ease-luxury` curve.
+
+**Primitives.** `Button` gained the signature gold-layer-slides-from-left
+primary, a fill-on-hover secondary, uppercase wide tracking, 48px+ targets, and
+gold focus rings. `Card` uses a soft-shadow lift with an optional `featured`
+gold top rule; `TerminalChrome` was squared. The landing page was rebuilt as an
+editorial showpiece (asymmetric hero, an extreme Playfair headline with
+italic-gold emphasis, decorative overline rule, drop-cap intro, large serif step
+numerals, vertical labels, slower load stagger). Dashboard, SessionCard,
+QueueCard, StatusBadge, both dialogs, TerminalPage, TerminalFrame, CallbackPage,
+and NotFoundPage moved to serif headings, uppercase tracked labels, squared
+surfaces, and gold accents. Accessibility preserved: motion still gated by
+`prefers-reduced-motion`, focus indicators kept, semantic status colors retained.
+
+**Deliberate scope call.** The product has no photography, so the system's
+grayscale-image-to-color reveal was intentionally *not* forced in — the editorial
+personality here comes from typography, negative space, the gridline
+architecture, gold restraint, and cinematic timing (the system's actual "secret"
+is restraint, not decoration).
+
+**Bug fixed in passing.** The session timer read "54m left left" — `timeLeft()`
+already returns the trailing word ("54m left" / "expired"), but `SessionCard` and
+`TerminalPage` templated `{left} left`, doubling it. Both now render `{left}`
+(pre-existing bug, not introduced by the restyle; `expired` also renders cleanly
+now).
+
+**Leanness pass.** Pruned dead tokens introduced during the redesign after
+confirming zero references: the `--paper`/`--ink`/`--gold` CSS constants, the
+`shadow-feature` and `serif` font-family aliases, the `transitionDuration`
+1500/2000 extensions, and the unused `fadeIn` keyframe/animation. All five
+runtime deps remain in use. Added `dist_test/` (a stale 2.7 MB secondary build
+output, previously untracked while only `dist` was ignored) to
+`frontend/.gitignore` — the existing directory should be removed manually
+(`rm -rf frontend/dist_test`; it was owned outside the tooling sandbox and
+couldn't be deleted automatically).
+
+**Deploy note.** Frontend-image-only change; rebuild the SPA image and bump the
+frontend chart (`kubesandbox-charts/frontend/Chart.yaml`) when committing, per
+the rev 24 convention.
+
+Files: `frontend/tailwind.config.js`, `frontend/src/index.css`,
+`frontend/src/components/ui/{button,card}.tsx`, `frontend/src/components/Layout.tsx`,
+`frontend/src/pages/{LandingPage,DashboardPage,TerminalPage,NotFoundPage,CallbackPage}.tsx`,
+`frontend/src/components/{SessionCard,QueueCard,StatusBadge,CreateSessionDialog,ConfirmDeleteDialog,TerminalFrame}.tsx`,
+`frontend/.gitignore`.
+
+---
+
+## rev 25 — 2026-07-04 — ttyd banner/aliases actually load, image → 1.0.1, workspace tag consolidated to one value
+
+Two fixes and a refactor around the ttyd shell image.
+
+**The banner + `k` alias never loaded — now they do.** rev 24 baked
+`kubesandbox-shellrc.sh` into the image and sourced it from `/root/.bashrc`,
+but the session Pod never ran that path: the Crossplane composition launched
+the terminal as `exec ttyd … -p 8080 sh` (busybox `sh`, which doesn't read
+`.bashrc`) **and** the pod runs as UID 1000 with `HOME=/tmp` and a read-only
+root, so `/root/.bashrc` is unreachable regardless of shell. Net effect: every
+terminal opened as a bare `~ $` prompt with `sh: k: not found`. Fixed by
+launching `bash --rcfile /etc/kubesandbox/shellrc.sh` in both the composition
+command and the image `ENTRYPOINT`, and dropping the dead `>> /root/.bashrc`
+step from the Dockerfile. Verified locally: `bash --rcfile … -i` prints the
+ASCII banner and defines the `k`/`kubectl` → `kubecolor` aliases.
+
+**Shell image bumped `1.0.0 → 1.0.1`** (`ttyd/VERSION`), so the corrected
+image ships under a fresh tag — sidestepping the `imagePullPolicy: IfNotPresent`
+stale-cache trap where nodes keep a previously-pulled `1.0.0` layer.
+
+**Workspace image tag consolidated to a single source.** It previously lived in
+four places (XRD default, composition base image, backend `DefaultWorkspaceImage`
+constant, plus `ttyd/VERSION`). Now the chart owns one value —
+`.Values.workspaceImage` in `kubesandbox-backend/values.yaml` — templated into
+the XRD default, the composition pod image, and a new `WORKSPACE_IMAGE` env on
+the backend Deployment. `config.Load()` reads `WORKSPACE_IMAGE` (falling back to
+the `models.DefaultWorkspaceImage` constant for local runs/tests) and `main.go`
+passes `cfg.WorkspaceImage`. A shell-image bump is now a two-line change:
+`ttyd/VERSION` (what CI builds) and `.Values.workspaceImage` (what runs). Backend
+chart bumped `0.1.20 → 0.1.21`; `go build ./...` clean.
+
+**Deploy note.** Backend runs from `:latest`, so after its image rebuilds a
+`kubectl rollout restart deploy/kubesandbox-backend-helm` is still needed for the
+new env to take effect, and existing `pool=available` warm members should be
+deleted (or aged out via `maxWarmAgeHours`) so hand-overs pick up `1.0.1`.
+
+Files: `ttyd/{Dockerfile,VERSION}`,
+`kubesandbox-charts/kubesandbox-backend/{Chart.yaml,values.yaml,templates/kubesandbox-session-composition.yaml,templates/kubesandbox-session-xrd.yaml,templates/deployment.yaml}`,
+`backend/internal/config/config.go`, `backend/internal/models/session.go`,
+`backend/cmd/server/main.go`, `README.md`,
+`docs/reference/backend-architecture.md`.
+
+---
+
 ## rev 24 — 2026-07-03 — Dashboard live-tuned in Grafana, ttyd image gets kubecolor, dead route cleanup
 
 Grab-bag rev closing out loose ends after rev 23 and picking up a few

@@ -1,0 +1,7 @@
+# Umbrella defaults. Subchart values are nested under each dependency's chart name.
+# Anything here overrides the subchart's own values.yaml; per-environment overrides
+# live in the GitOps repo at:
+#   operators-helm/operators/kubesandbox/values/chart/values-<env>.yaml
+# and are likewise nested under `kubesandbox-backend:` / `kubesandbox-frontend:`.
+kubesandbox-backend: {}
+kubesandbox-frontend: {}
