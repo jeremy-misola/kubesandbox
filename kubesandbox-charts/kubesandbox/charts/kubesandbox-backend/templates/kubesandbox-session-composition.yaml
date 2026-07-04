@@ -171,6 +171,18 @@ spec:
                         persistence:
                           volumeClaim:
                             enabled: false
+                    # NetworkPolicy objects created inside the vcluster are OFF
+                    # by default (vcluster chart default: sync.toHost.networkPolicies.enabled
+                    # = false) — they land in the virtual API server but are never
+                    # synced to the host, so they enforce nothing against real traffic.
+                    # See docs/history/challenges-feasibility-spike.md §NetworkPolicy.
+                    # Enabling this is what makes NetworkPolicy-based exercises
+                    # (default-deny, cross-namespace isolation, DNS-only egress,
+                    # etc.) actually gradable.
+                    sync:
+                      toHost:
+                        networkPolicies:
+                          enabled: true
             patches:
               - type: CombineFromComposite
                 combine:

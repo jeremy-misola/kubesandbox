@@ -26,6 +26,7 @@ system got here and are not maintained against the current code.
 | [`history/provisioning-latency-approach.md`](./history/provisioning-latency-approach.md) | Rationale and options assessment that led to choosing a hot warm-pool over on-demand builds. |
 | [`history/pause-resume-spike.md`](./history/pause-resume-spike.md) | Spike rejecting a *paused* pool (resume too slow) and surfacing the vcluster control-plane CPU-limit fix. |
 | [`history/hot-pool-implementation-brief.md`](./history/hot-pool-implementation-brief.md) | The agent handoff brief that specified the hot pool; the as-built result is `reference/hot-pool-design.md`. |
+| [`history/challenges-feasibility-spike.md`](./history/challenges-feasibility-spike.md) | Feasibility pass on 64 scraped iximiuz-style challenges against the vcluster model: what works today, what needed the NetworkPolicy-sync fix (shipped), and what's architecturally out of reach (real multi-node, static pods, kubeadm upgrade). Also surfaced a Pod Security Standard gap. |
 
 ## Conventions
 
