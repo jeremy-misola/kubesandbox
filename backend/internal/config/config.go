@@ -41,9 +41,6 @@ type Config struct {
 
 	// --- Hot warm-pool ---
 
-	// PoolEnabled turns the hot pool + assignment path on. When false the
-	// backend falls back to legacy direct creates (cold build on request).
-	PoolEnabled bool
 	// PoolTargetWarm is how many hot, unclaimed sandboxes to keep Ready.
 	PoolTargetWarm int
 	// PoolMaxTotal is the concurrent-session ceiling (warm + live).
@@ -105,20 +102,6 @@ func getenvInt(key string, def int) int {
 	return n
 }
 
-// getenvBool parses a boolean env var, falling back to def when unset or
-// unparseable.
-func getenvBool(key string, def bool) bool {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		return def
-	}
-	return b
-}
-
 // hostOf extracts the hostname (without port) from a URL string, returning ""
 // on error.
 func hostOf(rawURL string) string {
@@ -159,7 +142,6 @@ func Load() Config {
 
 		TTLCleanupInterval: time.Duration(getenvInt("TTL_CLEANUP_INTERVAL", 1)) * time.Minute,
 
-		PoolEnabled:    getenvBool("POOL_ENABLED", true),
 		PoolTargetWarm: getenvInt("POOL_TARGET_WARM", 2),
 		PoolMaxTotal:   getenvInt("POOL_MAX_TOTAL", 60),
 		PoolMaxWarmAge: time.Duration(getenvInt("POOL_MAX_WARM_AGE_HOURS", 24)) * time.Hour,

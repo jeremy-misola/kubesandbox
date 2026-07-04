@@ -34,7 +34,7 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueu
 	r.GET("/health", handlers.Health)
 	r.GET("/healthz", handlers.Health)
 
-	sessions := handlers.NewSessionHandler(svc, queue, cfg.PoolEnabled, metrics)
+	sessions := handlers.NewSessionHandler(svc, queue, metrics)
 
 	api := r.Group("/api")
 	api.Use(middleware.IdentityMiddleware(cfg))

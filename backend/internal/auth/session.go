@@ -26,34 +26,17 @@ type SessionClaims struct {
 	Exp     int64  `json:"exp"` // Unix timestamp
 }
 
+func (c SessionClaims) expiry() int64 { return c.Exp }
+
 // SignSession encodes claims as base64url(JSON) and appends an HMAC-SHA256
 // signature, producing a compact token: "<payload>.<sig>".
 func SignSession(claims SessionClaims, secret string) (string, error) {
-	payload, err := marshalB64(claims)
-	if err != nil {
-		return "", err
-	}
-	sig := signHMAC(payload, secret)
-	return payload + "." + sig, nil
+	return signToken(claims, secret)
 }
 
 // VerifySession validates the HMAC, checks expiry, and returns the claims.
 func VerifySession(token, secret string) (*SessionClaims, error) {
-	payload, sig, ok := splitToken(token)
-	if !ok {
-		return nil, ErrInvalidToken
-	}
-	if !hmac.Equal([]byte(signHMAC(payload, secret)), []byte(sig)) {
-		return nil, ErrInvalidToken
-	}
-	var claims SessionClaims
-	if err := unmarshalB64(payload, &claims); err != nil {
-		return nil, ErrInvalidToken
-	}
-	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
-		return nil, ErrExpiredToken
-	}
-	return &claims, nil
+	return verifyToken[SessionClaims](token, secret)
 }
 
 // StateClaims is the payload stored in the OIDC state parameter (signed JWT-like
@@ -78,18 +61,35 @@ type StateClaims struct {
 	Exp          int64  `json:"exp"` // Unix timestamp (short-lived, ~5 min)
 }
 
+func (c StateClaims) expiry() int64 { return c.Exp }
+
 // SignState produces a signed state token for the PKCE authorization request.
 func SignState(claims StateClaims, secret string) (string, error) {
-	payload, err := marshalB64(claims)
-	if err != nil {
-		return "", err
-	}
-	sig := signHMAC(payload, secret)
-	return payload + "." + sig, nil
+	return signToken(claims, secret)
 }
 
 // VerifyState validates the HMAC and checks expiry, returning the state claims.
 func VerifyState(token, secret string) (*StateClaims, error) {
+	return verifyToken[StateClaims](token, secret)
+}
+
+// --- signing core ---
+
+// expirable is satisfied by any claims type carrying an exp timestamp.
+type expirable interface{ expiry() int64 }
+
+// signToken encodes claims as base64url(JSON) and appends an HMAC-SHA256
+// signature, producing a compact token: "<payload>.<sig>".
+func signToken[T any](claims T, secret string) (string, error) {
+	payload, err := marshalB64(claims)
+	if err != nil {
+		return "", err
+	}
+	return payload + "." + signHMAC(payload, secret), nil
+}
+
+// verifyToken validates the HMAC, checks expiry, and returns the decoded claims.
+func verifyToken[T expirable](token, secret string) (*T, error) {
 	payload, sig, ok := splitToken(token)
 	if !ok {
 		return nil, ErrInvalidToken
@@ -97,11 +97,11 @@ func VerifyState(token, secret string) (*StateClaims, error) {
 	if !hmac.Equal([]byte(signHMAC(payload, secret)), []byte(sig)) {
 		return nil, ErrInvalidToken
 	}
-	var claims StateClaims
+	var claims T
 	if err := unmarshalB64(payload, &claims); err != nil {
 		return nil, ErrInvalidToken
 	}
-	if claims.Exp > 0 && time.Now().Unix() > claims.Exp {
+	if exp := claims.expiry(); exp > 0 && time.Now().Unix() > exp {
 		return nil, ErrExpiredToken
 	}
 	return &claims, nil

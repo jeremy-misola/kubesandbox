@@ -16,34 +16,27 @@ const msgSessionExists = "you already have a sandbox (or one is still being clea
 
 // SessionHandler serves the /api/sessions endpoints.
 type SessionHandler struct {
-	svc         *k8s.SessionService
-	queue       *k8s.AssignQueue
-	poolEnabled bool
+	svc   *k8s.SessionService
+	queue *k8s.AssignQueue
 	// metrics is the injected instrument set; nil is a valid no-op.
 	metrics *telemetry.Metrics
 }
 
-// NewSessionHandler constructs a SessionHandler. queue may be nil when the warm
-// pool is disabled (legacy direct-create mode); metrics may be nil when
+// NewSessionHandler constructs a SessionHandler. metrics may be nil when
 // telemetry is disabled.
-func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, poolEnabled bool, metrics *telemetry.Metrics) *SessionHandler {
-	return &SessionHandler{svc: svc, queue: queue, poolEnabled: poolEnabled, metrics: metrics}
+func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, metrics *telemetry.Metrics) *SessionHandler {
+	return &SessionHandler{svc: svc, queue: queue, metrics: metrics}
 }
 
-// Create handles POST /api/sessions. The hot-pool path assigns an already-warm
-// sandbox (a metadata change); an empty pool queues the request (202) rather
-// than running a synchronous cold build.
+// Create handles POST /api/sessions. It assigns an already-warm sandbox (a
+// metadata change); an empty pool queues the request (202) rather than running
+// a synchronous cold build.
 func (h *SessionHandler) Create(c *gin.Context) {
 	ident := middleware.GetIdentity(c)
 
 	var req models.CreateSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "invalid_request", "request body is not valid JSON")
-		return
-	}
-
-	if !h.poolEnabled {
-		h.createDirect(c, ident.Subject, req)
 		return
 	}
 
@@ -68,26 +61,9 @@ func (h *SessionHandler) Create(c *gin.Context) {
 	}
 }
 
-// createDirect is the legacy pool-disabled path (cold build on request).
-func (h *SessionHandler) createDirect(c *gin.Context, owner string, req models.CreateSessionRequest) {
-	sess, err := h.svc.Create(c.Request.Context(), owner, req)
-	switch {
-	case err == nil:
-		c.JSON(http.StatusCreated, sess)
-	case errors.Is(err, k8s.ErrAlreadyExists):
-		respondError(c, http.StatusConflict, "session_exists", msgSessionExists)
-	default:
-		respondError(c, http.StatusInternalServerError, "create_failed", "could not create session")
-	}
-}
-
 // QueuePosition handles GET /api/queue — a JSON poll of the caller's queue state.
 func (h *SessionHandler) QueuePosition(c *gin.Context) {
 	ident := middleware.GetIdentity(c)
-	if h.queue == nil {
-		respondError(c, http.StatusNotFound, "not_queued", "queueing is disabled")
-		return
-	}
 	if pos, ok := h.queue.Position(ident.Subject); ok {
 		c.JSON(http.StatusOK, models.QueueStatus{Status: "queued", Position: pos})
 		return

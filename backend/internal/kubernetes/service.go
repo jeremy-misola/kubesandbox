@@ -193,11 +193,6 @@ func (s *SessionService) ToSession(obj *unstructured.Unstructured) models.Sessio
 	return sess
 }
 
-// NameFromID exposes id->name resolution for handlers (e.g. SSE).
-func (s *SessionService) NameFromID(id string) (string, error) {
-	return s.nameFromID(id)
-}
-
 // nameFromID converts the public id "{namespace}-{name}" back to the claim
 // name. The configured namespace is the only valid prefix.
 func (s *SessionService) nameFromID(id string) (string, error) {
@@ -210,12 +205,6 @@ func (s *SessionService) nameFromID(id string) (string, error) {
 		return "", ErrInvalidID
 	}
 	return name, nil
-}
-
-// sessionName derives the deterministic claim name for an owner. Used only by
-// the legacy direct-create path; pool members have generated names.
-func sessionName(ownerRef string) string {
-	return "s-" + ownerHash(ownerRef)[:16]
 }
 
 // randSuffix returns a 10-char hex suffix for warm claim names.

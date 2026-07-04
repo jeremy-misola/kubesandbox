@@ -3,7 +3,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,49 +11,6 @@ import (
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 )
-
-// Create mints a new claim with the deterministic per-owner name (one-per-user
-// via AlreadyExists). Used only when the warm pool is disabled; the hot-pool
-// request path is Assign.
-func (s *SessionService) Create(ctx context.Context, ownerRef string, req models.CreateSessionRequest) (*models.Session, error) {
-	ttl := clampTTL(req.TTLMinutes)
-
-	image := req.WorkspaceImage
-	if image == "" {
-		image = s.defaultImage
-	}
-	expiresAt := s.now().UTC().Add(time.Duration(ttl) * time.Minute).Format(time.RFC3339)
-
-	spec := map[string]interface{}{
-		"tenantRef":      ownerRef,
-		"ownerRef":       ownerRef,
-		"ttlMinutes":     int64(ttl),
-		"expiresAt":      expiresAt,
-		"workspaceImage": image,
-		"resources":      defaultResourcesMap(),
-	}
-	if req.StarterLabRef != "" {
-		spec["starterLabRef"] = req.StarterLabRef
-	}
-
-	obj := newClaimObject(s.namespace, sessionName(ownerRef),
-		map[string]string{
-			managedByLabel: managedByValue,
-			ownerLabel:     ownerHash(ownerRef),
-		},
-		map[string]string{ownerRefAnnot: ownerRef},
-		spec)
-
-	created, err := s.resource().Create(ctx, obj, metav1.CreateOptions{})
-	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			return nil, ErrAlreadyExists
-		}
-		return nil, fmt.Errorf("create claim: %w", err)
-	}
-	sess := s.ToSession(created)
-	return &sess, nil
-}
 
 // List returns all sessions owned by ownerRef.
 func (s *SessionService) List(ctx context.Context, ownerRef string) ([]models.Session, error) {

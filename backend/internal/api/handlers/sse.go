@@ -93,12 +93,7 @@ func (h *SessionHandler) QueueEvents(c *gin.Context) {
 		return
 	}
 
-	var ch <-chan k8s.QueueEvent
-	var unsub func()
-	queued := false
-	if h.queue != nil {
-		ch, unsub, queued = h.queue.Subscribe(ident.Subject)
-	}
+	ch, unsub, queued := h.queue.Subscribe(ident.Subject)
 	if !queued {
 		sessions, err := h.svc.List(c.Request.Context(), ident.Subject)
 		if err == nil && len(sessions) > 0 {

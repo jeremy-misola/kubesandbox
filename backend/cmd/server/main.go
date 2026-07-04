@@ -67,16 +67,14 @@ func main() {
 
 	// Warm-pool manager: keeps N unclaimed sandboxes Ready so creates are a
 	// metadata-only assignment. Strictly off the request path.
-	if cfg.PoolEnabled {
-		pool := k8s.NewPoolManager(svc, queue, k8s.PoolConfig{
-			TargetWarm: cfg.PoolTargetWarm,
-			MaxTotal:   cfg.PoolMaxTotal,
-			MaxWarmAge: cfg.PoolMaxWarmAge,
-			Resync:     cfg.PoolResync,
-		})
-		pool.SetMetrics(metrics)
-		go pool.Run(bgCtx)
-	}
+	pool := k8s.NewPoolManager(svc, queue, k8s.PoolConfig{
+		TargetWarm: cfg.PoolTargetWarm,
+		MaxTotal:   cfg.PoolMaxTotal,
+		MaxWarmAge: cfg.PoolMaxWarmAge,
+		Resync:     cfg.PoolResync,
+	})
+	pool.SetMetrics(metrics)
+	go pool.Run(bgCtx)
 
 	// Run the server.
 	go func() {
