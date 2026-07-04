@@ -26,8 +26,10 @@ export default {
         danger: "hsl(var(--danger))",
       },
       fontFamily: {
-        display: ['"Space Grotesk"', "ui-sans-serif", "system-ui", "sans-serif"],
-        sans: ['"IBM Plex Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
+        // Two families, doing hierarchy through weight and size. Inter for all
+        // UI and headings; JetBrains Mono reserved for terminal/data.
+        display: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
       },
       borderRadius: {
@@ -36,9 +38,8 @@ export default {
         sm: "0.25rem",
       },
       boxShadow: {
-        "glow-sm": "0 0 12px hsl(var(--primary) / 0.25)",
-        glow: "0 0 24px hsl(var(--primary) / 0.3)",
-        card: "0 1px 0 hsl(var(--foreground) / 0.03) inset, 0 8px 24px -12px rgb(0 0 0 / 0.6)",
+        // One subtle elevation shadow — no colored glow.
+        card: "0 1px 0 hsl(var(--foreground) / 0.03) inset, 0 10px 30px -18px rgb(0 0 0 / 0.7)",
       },
     },
   },

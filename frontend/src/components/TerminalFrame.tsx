@@ -260,30 +260,30 @@ export function TerminalFrame({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 font-mono text-[11px]"
+            className="h-7 px-2 text-[11px]"
             onClick={() => void connect()}
             title="Reconnect"
           >
-            ⟳ reconnect
+            Reconnect
           </Button>
           <a href={terminalUrl(id)} target="_blank" rel="noreferrer">
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 font-mono text-[11px]"
+              className="h-7 px-2 text-[11px]"
               title="Open in a new tab"
             >
-              ↗ new tab
+              New tab
             </Button>
           </a>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 font-mono text-[11px]"
+            className="h-7 px-2 text-[11px]"
             onClick={toggleFullscreen}
             title={isFullscreen ? "Exit full screen" : "Full screen"}
           >
-            {isFullscreen ? "⤡ exit" : "⤢ full screen"}
+            {isFullscreen ? "Exit full screen" : "Full screen"}
           </Button>
         </span>
       </TerminalChrome>
@@ -375,7 +375,7 @@ export function TerminalFrame({
             {phase === "error" && (
               <div className="m-auto max-w-sm text-center">
                 <p className="font-mono text-sm text-danger">
-                  ✗ couldn't reach the terminal
+                  Couldn't reach the terminal
                 </p>
                 <p className="mt-2 text-sm text-muted-foreground">
                   The session endpoint didn't answer — the sandbox may still be
