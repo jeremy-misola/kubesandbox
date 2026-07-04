@@ -14,60 +14,82 @@ export function LandingPage() {
 
   const heroRef = useRef<HTMLDivElement>(null);
 
-  // Page-load sequence: the hero block rises in once.
+  // Page-load sequence: the hero blocks rise in once, slowly and deliberately.
   useLayoutEffect(() => {
     if (prefersReducedMotion() || !heroRef.current) return;
     const blocks = heroRef.current.querySelectorAll("[data-hero-block]");
     animate(blocks, {
       opacity: [0, 1],
-      translateY: [20, 0],
-      duration: 550,
+      translateY: [28, 0],
+      duration: 1100,
       ease: "out(4)",
-      delay: stagger(80),
+      delay: stagger(140),
     });
   }, []);
 
   return (
-    <div className="pb-4">
-      {/* ————— Hero ————— */}
-      <section ref={heroRef} className="grid gap-10 py-10 sm:py-16 lg:grid-cols-2 lg:items-center">
-        <div className="max-w-xl">
-          <p
-            data-hero-block
-            className="text-sm font-medium text-primary"
-          >
-            Ephemeral Kubernetes sandboxes
-          </p>
+    <div className="pb-8">
+      {/* ————— Hero: asymmetric, bottom-left weighted ————— */}
+      <section
+        ref={heroRef}
+        className="relative grid gap-12 pt-10 sm:pt-16 lg:grid-cols-12 lg:gap-8"
+      >
+        {/* Vertical editorial label, desktop only. */}
+        <span
+          aria-hidden
+          className="vertical-label absolute -left-2 top-24 hidden text-[10px] uppercase tracking-overline text-muted-foreground lg:block"
+        >
+          Editorial — Vol. 01 / Ephemeral Compute
+        </span>
+
+        <div className="lg:col-span-7 lg:col-start-2">
+          <div data-hero-block className="flex items-center gap-4">
+            <span className="h-px w-10 bg-foreground md:w-14" />
+            <span className="text-[10px] uppercase tracking-overline text-muted-foreground">
+              Ephemeral Kubernetes Sandboxes
+            </span>
+          </div>
+
           <h1
             data-hero-block
-            className="mt-3 text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl"
+            className="mt-8 font-display text-5xl font-normal leading-[0.92] tracking-tight sm:text-7xl md:text-8xl"
           >
-            A throwaway cluster,
+            A throwaway
             <br />
-            ready in seconds.
+            cluster, <span className="italic text-accent">ready</span>
+            <br />
+            in seconds.
           </h1>
-          <p data-hero-block className="mt-5 text-base leading-relaxed text-muted-foreground">
-            An isolated vcluster with a browser terminal — no install, no local
-            setup. Spin one up for a workshop, a demo, or an experiment. It
-            deletes itself when the timer runs out, so nothing lingers and
-            nothing costs you while it sits idle.
+
+          <p
+            data-hero-block
+            className="drop-cap mt-10 max-w-xl text-lg font-light leading-relaxed text-muted-foreground"
+          >
+            An isolated Kubernetes cluster and a browser terminal, provisioned
+            the moment you ask. It runs entirely on its own, then quietly cleans
+            itself up when the timer reaches zero — nothing to tear down,
+            nothing left running.
           </p>
-          <div data-hero-block className="mt-8 flex flex-wrap items-center gap-4">
+
+          <div
+            data-hero-block
+            className="mt-12 flex flex-col items-start gap-4 sm:flex-row sm:items-center"
+          >
             {isAuthenticated ? (
               <>
                 <Link to="/dashboard">
-                  <Button size="md">Open dashboard</Button>
+                  <Button size="lg">Open dashboard</Button>
                 </Link>
-                <span className="max-w-[220px] truncate text-sm text-muted-foreground">
-                  Signed in as {user?.profile?.email ?? user?.profile?.name}
+                <span className="max-w-[260px] truncate text-xs uppercase tracking-label text-muted-foreground">
+                  {user?.profile?.email ?? user?.profile?.name}
                 </span>
               </>
             ) : (
               <>
-                <Button size="md" disabled={loading} onClick={() => login(returnTo)}>
-                  Sign in to get started
+                <Button size="lg" disabled={loading} onClick={() => login(returnTo)}>
+                  Sign in to begin
                 </Button>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-xs uppercase tracking-label text-muted-foreground">
                   Single sign-on via Authentik
                 </span>
               </>
@@ -75,28 +97,31 @@ export function LandingPage() {
           </div>
         </div>
 
-        {/* Honest product visual: the actual browser terminal the product
-            hands you, not a decorative graphic. */}
-        <div data-hero-block className="lg:justify-self-end lg:w-full">
+        {/* The product itself — a dark terminal window resting on warm paper. */}
+        <div data-hero-block className="lg:col-span-4 lg:col-start-9 lg:pt-16">
           <TerminalPreview />
         </div>
       </section>
 
-      {/* ————— How it works (a real, ordered sequence) ————— */}
-      <section className="border-t border-border/60 py-14">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          How it works
-        </h2>
-        <div className="mt-8 grid gap-8 sm:grid-cols-3">
+      {/* ————— How it works ————— */}
+      <section className="mt-28 border-t border-foreground/15 pt-14 md:mt-36">
+        <div className="flex items-center gap-4">
+          <span className="text-[10px] uppercase tracking-overline text-muted-foreground">
+            The Process
+          </span>
+          <span className="h-px flex-1 bg-foreground/15" />
+        </div>
+
+        <div className="mt-12 grid gap-x-8 gap-y-12 sm:grid-cols-3">
           {STEPS.map((step, i) => (
-            <div key={step.title}>
-              <div className="font-mono text-sm text-primary">
+            <div key={step.title} className="border-t border-foreground pt-6">
+              <div className="font-display text-5xl font-normal leading-none text-accent">
                 0{i + 1}
               </div>
-              <h3 className="mt-2 text-base font-semibold tracking-tight">
+              <h3 className="mt-5 font-display text-2xl font-normal tracking-tight">
                 {step.title}
               </h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              <p className="mt-3 text-sm font-light leading-relaxed text-muted-foreground">
                 {step.body}
               </p>
             </div>
@@ -105,18 +130,25 @@ export function LandingPage() {
       </section>
 
       {/* ————— Features ————— */}
-      <section className="border-t border-border/60 py-14">
-        <div className="grid gap-x-10 gap-y-9 sm:grid-cols-2">
+      <section className="mt-28 border-t border-foreground/15 pt-14 md:mt-36">
+        <div className="flex items-center gap-4">
+          <span className="text-[10px] uppercase tracking-overline text-muted-foreground">
+            The Details
+          </span>
+          <span className="h-px flex-1 bg-foreground/15" />
+        </div>
+
+        <div className="mt-12 grid gap-x-12 gap-y-12 sm:grid-cols-2">
           {FEATURES.map((f) => (
-            <div key={f.title} className="flex gap-4">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50 text-primary">
+            <div key={f.title} className="group flex gap-6 border-t border-foreground/70 pt-6">
+              <span className="mt-0.5 text-muted-foreground transition-colors duration-500 ease-luxury group-hover:text-accent">
                 {f.icon}
               </span>
               <div>
-                <h3 className="text-base font-semibold tracking-tight">
+                <h3 className="font-display text-xl font-normal tracking-tight">
                   {f.title}
                 </h3>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                <p className="mt-2 text-sm font-light leading-relaxed text-muted-foreground">
                   {f.body}
                 </p>
               </div>
@@ -127,21 +159,21 @@ export function LandingPage() {
 
       {/* ————— Closing CTA ————— */}
       {!isAuthenticated && (
-        <section className="border-t border-border/60 py-14 text-center">
-          <h2 className="text-2xl font-bold tracking-tight">
-            Start with a clean cluster.
-          </h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Sign in and your sandbox is usually ready the moment you ask for it.
-          </p>
-          <Button
-            size="md"
-            className="mt-6"
-            disabled={loading}
-            onClick={() => login(returnTo)}
-          >
-            Sign in to get started
-          </Button>
+        <section className="mt-28 border-t border-foreground/15 pt-16 md:mt-36">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="font-display text-4xl font-normal leading-tight tracking-tight sm:text-5xl">
+              Start with a <span className="italic text-accent">clean</span> cluster.
+            </h2>
+            <p className="mx-auto mt-5 max-w-md text-sm font-light leading-relaxed text-muted-foreground">
+              Sign in and your sandbox is usually handed over the moment you ask
+              for it — pre-warmed, isolated, and yours alone.
+            </p>
+            <div className="mt-10 flex justify-center">
+              <Button size="lg" disabled={loading} onClick={() => login(returnTo)}>
+                Sign in to begin
+              </Button>
+            </div>
+          </div>
         </section>
       )}
     </div>
@@ -149,35 +181,44 @@ export function LandingPage() {
 }
 
 /** A static, faithful snapshot of the browser terminal — the product itself,
- *  used as the hero visual instead of an abstract graphic. */
+ *  used as the hero visual. Kept dark: a terminal is a terminal. The gold
+ *  prompt caret is the single editorial accent. */
 function TerminalPreview() {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
-      <TerminalChrome title="s/ws-4f2a — zsh">
-        <span className="ml-auto flex items-center gap-1.5 text-xs text-success">
-          <i aria-hidden className="h-1.5 w-1.5 rounded-full bg-success" />
-          connected
-        </span>
-      </TerminalChrome>
-      <div className="space-y-1.5 p-4 font-mono text-[13px] leading-relaxed">
-        <p>
-          <span className="text-primary">❯</span> kubectl get nodes
-        </p>
-        <p className="text-muted-foreground">
-          NAME             STATUS   ROLES    AGE   VERSION
-        </p>
-        <p className="text-muted-foreground">
-          vcluster-0       Ready    &lt;none&gt;   6s    v1.30.2
-        </p>
-        <p className="pt-2">
-          <span className="text-primary">❯</span> kubectl create deploy web
-          --image=nginx
-        </p>
-        <p className="text-muted-foreground">deployment.apps/web created</p>
-        <p className="pt-2">
-          <span className="text-primary">❯</span>
-          <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-primary align-middle" />
-        </p>
+    <div className="relative">
+      <span
+        aria-hidden
+        className="vertical-label absolute -right-7 top-2 hidden text-[10px] uppercase tracking-overline text-muted-foreground xl:block"
+      >
+        Live Session
+      </span>
+      <div className="dark overflow-hidden border border-foreground/20 bg-[#1A1A1A] text-[#F9F8F6] shadow-hero">
+        <TerminalChrome title="s/ws-4f2a — zsh">
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-label text-success">
+            <i aria-hidden className="h-1.5 w-1.5 rounded-full bg-success" />
+            connected
+          </span>
+        </TerminalChrome>
+        <div className="space-y-1.5 p-5 font-mono text-[13px] leading-relaxed">
+          <p>
+            <span className="text-accent">❯</span> kubectl get nodes
+          </p>
+          <p className="text-muted-foreground">
+            NAME             STATUS   ROLES    AGE   VERSION
+          </p>
+          <p className="text-muted-foreground">
+            vcluster-0       Ready    &lt;none&gt;   6s    v1.30.2
+          </p>
+          <p className="pt-2">
+            <span className="text-accent">❯</span> kubectl create deploy web
+            --image=nginx
+          </p>
+          <p className="text-muted-foreground">deployment.apps/web created</p>
+          <p className="pt-2">
+            <span className="text-accent">❯</span>
+            <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-accent align-middle" />
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -221,16 +262,16 @@ const FEATURES: { title: string; body: string; icon: ReactNode }[] = [
   },
 ];
 
-/* Small, literal line icons — one weight, no fill. */
+/* Small, literal line icons — one thin weight, no fill. Functional, not decorative. */
 function iconProps() {
   return {
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.6,
+    strokeWidth: 1.4,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    className: "h-[18px] w-[18px]",
+    className: "h-6 w-6",
     "aria-hidden": true,
   };
 }
@@ -244,7 +285,7 @@ function IconShield() {
 function IconTerminal() {
   return (
     <svg {...iconProps()}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <rect x="3" y="4" width="18" height="16" />
       <path d="m7 9 3 3-3 3M13 15h4" />
     </svg>
   );

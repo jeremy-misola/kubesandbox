@@ -241,8 +241,8 @@ export function TerminalFrame({
     <div
       ref={shellRef}
       className={cn(
-        "term-shell flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card",
-        "focus-within:border-primary/40",
+        "term-shell flex flex-col overflow-hidden border border-border bg-card shadow-card",
+        "focus-within:border-accent/40",
         className,
       )}
     >
@@ -308,8 +308,8 @@ export function TerminalFrame({
           >
             {phase === "probing" && (
               <p className="font-mono text-sm text-muted-foreground">
-                <span className="text-primary">❯</span> connecting
-                <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-primary align-middle" />
+                <span className="text-accent">❯</span> connecting
+                <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-accent align-middle" />
               </p>
             )}
 
@@ -325,7 +325,7 @@ export function TerminalFrame({
                   >
                     {line.startsWith("$") ? (
                       <>
-                        <span className="text-primary">$</span>
+                        <span className="text-accent">$</span>
                         {line.slice(1)}
                       </>
                     ) : (
@@ -334,7 +334,7 @@ export function TerminalFrame({
                   </p>
                 ))}
                 <p className="pt-1 font-mono text-[13px]" data-boot-line>
-                  <span className="cursor-blink inline-block h-4 w-2 bg-primary align-middle" />
+                  <span className="cursor-blink inline-block h-4 w-2 bg-accent align-middle" />
                 </p>
               </div>
             )}
@@ -342,9 +342,9 @@ export function TerminalFrame({
             {phase === "auth" && (
               <div className="m-auto max-w-sm text-center">
                 <p className="font-mono text-sm text-muted-foreground">
-                  <span className="text-primary">❯</span> authorization required
+                  <span className="text-accent">❯</span> authorization required
                 </p>
-                <h2 className="mt-3 font-display text-lg font-bold tracking-tight">
+                <h2 className="mt-3 font-display text-xl font-normal tracking-tight">
                   Unlock this terminal
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">

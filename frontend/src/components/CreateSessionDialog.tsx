@@ -56,7 +56,7 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#1A1A1A]/75 p-4 backdrop-blur-sm"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !create.isPending) requestClose();
       }}
@@ -66,18 +66,18 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-session-title"
-        className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-card shadow-card"
+        className="dark w-full max-w-lg overflow-hidden border border-border bg-card text-card-foreground shadow-hero"
       >
         <TerminalChrome title="kubesandbox — create" />
 
-        <div className="p-5">
+        <div className="p-6">
           <h2
             id="create-session-title"
-            className="font-display text-lg font-semibold tracking-tight"
+            className="font-display text-2xl font-normal tracking-tight"
           >
             New sandbox
           </h2>
-          <p className="mb-5 mt-1 text-sm text-muted-foreground">
+          <p className="mb-6 mt-2 text-sm font-light text-muted-foreground">
             Sandboxes are kept running and handed over on request — yours is
             usually ready the moment you click create.
           </p>
@@ -103,11 +103,11 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
           <div className="mb-2 mt-5 flex items-baseline justify-between">
             <label
               htmlFor="ttl-slider"
-              className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground"
+              className="font-mono text-[11px] uppercase tracking-label text-muted-foreground"
             >
               Lifetime
             </label>
-            <span className="font-mono text-sm text-primary">{formatTtl(ttl)}</span>
+            <span className="font-mono text-sm text-accent">{formatTtl(ttl)}</span>
           </div>
           <input
             id="ttl-slider"

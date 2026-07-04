@@ -32,7 +32,7 @@ export function ConfirmDeleteDialog({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#1A1A1A]/75 p-4 backdrop-blur-sm"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) requestClose();
       }}
@@ -43,18 +43,18 @@ export function ConfirmDeleteDialog({
         aria-modal="true"
         aria-labelledby="confirm-delete-title"
         aria-describedby="confirm-delete-desc"
-        className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-card shadow-card"
+        className="dark w-full max-w-md overflow-hidden border border-border bg-card text-card-foreground shadow-hero"
       >
         <TerminalChrome title={`${session.id} — delete`} />
 
-        <div className="p-5">
+        <div className="p-6">
           <h2
             id="confirm-delete-title"
-            className="font-display text-lg font-semibold tracking-tight"
+            className="font-display text-2xl font-normal tracking-tight"
           >
             Delete this sandbox?
           </h2>
-          <p id="confirm-delete-desc" className="mt-2 text-sm text-muted-foreground">
+          <p id="confirm-delete-desc" className="mt-3 text-sm font-light text-muted-foreground">
             This destroys{" "}
             <span className="font-mono text-xs text-foreground">{session.id}</span>{" "}
             and everything inside it. This can't be undone.

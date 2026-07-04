@@ -67,23 +67,25 @@ export function DashboardPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-primary">
-          ~/dashboard
-        </p>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">
-          Your sandbox
-          {session && (
-            <span className="ml-2 align-middle font-mono text-sm font-normal text-muted-foreground">
-              [active]
-            </span>
-          )}
-          {!session && queued && (
-            <span className="ml-2 align-middle font-mono text-sm font-normal text-warning">
-              [in line]
-            </span>
-          )}
-        </h1>
+      <div className="mb-10 flex items-center gap-4">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-label text-accent">
+            ~/dashboard
+          </p>
+          <h1 className="mt-2 font-display text-4xl font-normal tracking-tight">
+            Your sandbox
+            {session && (
+              <span className="ml-3 align-middle font-mono text-xs font-normal uppercase tracking-label text-muted-foreground">
+                [active]
+              </span>
+            )}
+            {!session && queued && (
+              <span className="ml-3 align-middle font-mono text-xs font-normal uppercase tracking-label text-warning">
+                [in line]
+              </span>
+            )}
+          </h1>
+        </div>
       </div>
 
       {isLoading && (
@@ -100,7 +102,7 @@ export function DashboardPage() {
               {error instanceof Error ? `: ${error.message}` : ""}.
             </p>
             <button
-              className="mt-2 rounded font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="mt-2 font-mono text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               onClick={() => refetch()}
             >
               retry →
@@ -119,9 +121,9 @@ export function DashboardPage() {
       {!isLoading && !isError && !session && !queued && (
         <Card className="overflow-hidden p-0">
           <TerminalChrome title="kubesandbox — empty" />
-          <div className="px-6 py-12 text-center">
+          <div className="px-6 py-16 text-center">
             <p className="font-mono text-sm text-muted-foreground">
-              <span className="text-primary">❯</span> kubesandbox status
+              <span className="text-accent">❯</span> kubesandbox status
               <br />
               <span className="text-muted-foreground/70">
                 no sandbox running — nothing is costing anything

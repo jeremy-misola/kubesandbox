@@ -33,7 +33,7 @@ export function QueueCard({ queue }: { queue: QueueStatus }) {
   return (
     <Card className="overflow-hidden p-0">
       <TerminalChrome title="kubesandbox — waiting">
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wider text-warning">
+        <span className="ml-auto inline-flex items-center gap-1.5 border border-warning/30 bg-warning/10 px-3 py-1 font-mono text-[10px] font-medium uppercase tracking-label text-warning">
           <i aria-hidden className="dot-breathe h-1.5 w-1.5 rounded-full bg-warning text-warning" />
           In line
         </span>
@@ -41,16 +41,16 @@ export function QueueCard({ queue }: { queue: QueueStatus }) {
 
       <div className="px-6 py-10 text-center" role="status" aria-live="polite">
         <p className="font-mono text-sm text-muted-foreground">
-          <span className="text-primary">❯</span> kubesandbox create
+          <span className="text-accent">❯</span> kubesandbox create
           <br />
           <span className="text-muted-foreground/70">
             every sandbox is in use right now
           </span>
         </p>
 
-        <p className="mt-6 font-display text-lg font-semibold tracking-tight">
+        <p className="mt-8 font-display text-xl font-normal tracking-tight">
           You're{" "}
-          <span ref={posRef} className="inline-block font-mono text-2xl text-primary">
+          <span ref={posRef} className="inline-block font-display text-4xl text-accent">
             #{queue.position}
           </span>{" "}
           in line

@@ -34,13 +34,13 @@ export function TerminalPage() {
           <div className="flex items-center gap-3">
             <Link
               to="/dashboard"
-              className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="font-mono text-[11px] uppercase tracking-label text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
               ← dashboard
             </Link>
             <div className="skeleton h-4 w-32" />
           </div>
-          <div className="skeleton h-5 w-20 rounded-full" />
+          <div className="skeleton h-6 w-24" />
         </div>
         <Card className="overflow-hidden p-0">
           <TerminalChrome title={`s/${id}`} />
@@ -62,17 +62,17 @@ export function TerminalPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/dashboard"
-            className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="font-mono text-[11px] uppercase tracking-label text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
             ← dashboard
           </Link>
-          <h1 className="font-display text-base font-semibold tracking-tight">
+          <h1 className="font-display text-xl font-normal tracking-tight">
             {session ? "Kubernetes sandbox" : `s/${id}`}
           </h1>
         </div>
         <div className="flex items-center gap-3">
           {left && (
-            <span className="font-mono text-xs text-primary">{left} left</span>
+            <span className="font-mono text-xs text-accent">{left} left</span>
           )}
           {session && <StatusBadge session={session} />}
         </div>
@@ -112,14 +112,14 @@ function NewTabHandoff({ id }: { id: string }) {
   const url = terminalUrl(id);
   return (
     <div className="flex min-h-[55vh] flex-col items-center justify-center">
-      <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-card shadow-card">
+      <div className="w-full max-w-md overflow-hidden border border-border bg-card shadow-hero">
         <TerminalChrome title={`s/${id}`} />
         <div className="p-6 text-center">
           <p className="font-mono text-sm">
-            <span className="text-primary">❯</span> open terminal
-            <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-primary align-middle" />
+            <span className="text-accent">❯</span> open terminal
+            <span className="cursor-blink -mb-0.5 ml-1 inline-block h-4 w-2 bg-accent align-middle" />
           </p>
-          <h1 className="mt-4 font-display text-xl font-bold tracking-tight">
+          <h1 className="mt-4 font-display text-2xl font-normal tracking-tight">
             Your terminal opens in a new tab
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -132,7 +132,7 @@ function NewTabHandoff({ id }: { id: string }) {
           <div className="mt-4">
             <Link
               to="/dashboard"
-              className="rounded font-mono text-xs text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="font-mono text-[11px] uppercase tracking-label text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
               ← back to dashboard
             </Link>
