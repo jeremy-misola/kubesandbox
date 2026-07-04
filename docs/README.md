@@ -27,6 +27,7 @@ system got here and are not maintained against the current code.
 | [`history/pause-resume-spike.md`](./history/pause-resume-spike.md) | Spike rejecting a *paused* pool (resume too slow) and surfacing the vcluster control-plane CPU-limit fix. |
 | [`history/hot-pool-implementation-brief.md`](./history/hot-pool-implementation-brief.md) | The agent handoff brief that specified the hot pool; the as-built result is `reference/hot-pool-design.md`. |
 | [`history/challenges-feasibility-spike.md`](./history/challenges-feasibility-spike.md) | Feasibility pass on 64 scraped iximiuz-style challenges against the vcluster model: what works today, what needed the NetworkPolicy-sync fix (shipped), and what's architecturally out of reach (real multi-node, static pods, kubeadm upgrade). Also surfaced a Pod Security Standard gap. |
+| [`history/platform-limitations-and-challenges-decision.md`](./history/platform-limitations-and-challenges-decision.md) | Capability matrix vs. a real cluster and vs. iximiuz Labs / KodeKloud / Killercoda, and the decision to build challenge content scoped to workload/policy/troubleshooting skills — not cluster-administration. |
 
 ## Conventions
 
