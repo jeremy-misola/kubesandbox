@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,11 +23,17 @@ import (
 // list time (optimistic concurrency); the loser of a race retries the next
 // member. If no member can be claimed the marker is rolled back and
 // ErrPoolEmpty is returned so the handler can queue the request.
+//
+// Challenges (design §6.1): when req names a challenge, the SAME CAS Update
+// that claims the member also stamps spec.starterLabRef and the
+// challenge-id/seed-state=pending annotations — atomic with ownership, so
+// there is no window where a challenge session exists without its seed intent
+// recorded. Assign never seeds; it stays a sub-second metadata change, and the
+// async seeder picks the claim up from the notifier/reconcile.
 func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models.CreateSessionRequest) (*models.Session, error) {
 	if ownerRef == "" {
 		return nil, fmt.Errorf("empty ownerRef")
 	}
-	ttl := clampTTL(req.TTLMinutes)
 
 	if err := s.createOwnerMarker(ctx, ownerRef); err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -51,16 +58,35 @@ func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models
 		return nil, ErrAlreadyExists
 	}
 
-	members, err := s.listAssignableMembers(ctx)
+	sess, err := s.claimReadyMember(ctx, ownerRef, req, "", 0)
 	if err != nil {
 		_ = s.deleteOwnerMarker(ctx, ownerRef)
+		return nil, err
+	}
+	return sess, nil
+}
+
+// claimReadyMember claims the oldest Ready member for ownerRef via CAS. The
+// caller owns marker lifecycle. expiresAtOverride ("" = now + ttl) preserves
+// the original expiry on the seeder's recycle path; recycles > 0 is stamped
+// so the seeder can enforce its recycle-at-most-once rule.
+func (s *SessionService) claimReadyMember(ctx context.Context, ownerRef string, req models.CreateSessionRequest, expiresAtOverride string, recycles int) (*models.Session, error) {
+	ttl := clampTTL(req.TTLMinutes)
+
+	members, err := s.listAssignableMembers(ctx)
+	if err != nil {
 		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultError)
 		return nil, err
 	}
 
 	// TTL starts at assignment, not warm creation: spec.expiresAt is the
 	// authoritative expiry read by cleanup.go.
-	expiresAt := s.now().UTC().Add(time.Duration(ttl) * time.Minute).Format(time.RFC3339)
+	expiresAt := expiresAtOverride
+	if expiresAt == "" {
+		expiresAt = s.now().UTC().Add(time.Duration(ttl) * time.Minute).Format(time.RFC3339)
+	}
+	challengeID := req.EffectiveChallengeID()
+
 	for i := range members {
 		m := members[i].DeepCopy()
 
@@ -82,6 +108,19 @@ func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models
 			annots = map[string]string{}
 		}
 		annots[ownerRefAnnot] = ownerRef
+		if challengeID != "" {
+			// Atomic with ownership: challenge selection + seed intent land in
+			// the same CAS write that claims the member (§6.1). The existing,
+			// previously-unused starterLabRef field carries the id in spec —
+			// no XRD migration.
+			_ = unstructured.SetNestedField(m.Object, challengeID, "spec", "starterLabRef")
+			annots[ChallengeIDAnnot] = challengeID
+			annots[SeedStateAnnot] = SeedStatePending
+			annots[SeedAttemptsAnnot] = "0"
+			if recycles > 0 {
+				annots[SeedRecyclesAnnot] = strconv.Itoa(recycles)
+			}
+		}
 		m.SetAnnotations(annots)
 
 		updated, err := s.resource().Update(ctx, m, metav1.UpdateOptions{})
@@ -91,18 +130,19 @@ func (s *SessionService) Assign(ctx context.Context, ownerRef string, req models
 				s.metrics.RecordAssignAttempt(ctx, telemetry.ResultConflictRetry)
 				continue
 			}
-			_ = s.deleteOwnerMarker(ctx, ownerRef)
 			s.metrics.RecordAssignAttempt(ctx, telemetry.ResultError)
 			return nil, fmt.Errorf("claim pool member %q: %w", m.GetName(), err)
 		}
 
 		s.setOwnerMarkerMember(ctx, ownerRef, updated.GetName())
 		s.metrics.RecordAssignAttempt(ctx, telemetry.ResultSuccess)
+		if challengeID != "" {
+			s.notifySeed(updated.GetName())
+		}
 		sess := s.ToSession(updated)
 		return &sess, nil
 	}
 
-	_ = s.deleteOwnerMarker(ctx, ownerRef)
 	s.metrics.RecordAssignAttempt(ctx, telemetry.ResultPoolEmpty)
 	return nil, ErrPoolEmpty
 }

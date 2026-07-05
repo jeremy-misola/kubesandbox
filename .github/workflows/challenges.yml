@@ -1,0 +1,41 @@
+name: Validate Challenge Bundles
+
+# Content CI (design §4, "validation happens twice"): every bundle is linted
+# pre-merge with the SAME Go validator the backend runs at watch time, so
+# content that merges cannot be quarantined for schema reasons at runtime.
+# (The kubeconform + dry-run-apply "must-apply gate" against a throwaway
+# vcluster is tracked separately; this is the schema/structure gate.)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'kubesandbox-charts/kubesandbox/charts/kubesandbox-challenges/**'
+      - 'backend/internal/content/**'
+      - 'backend/cmd/validate-bundles/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'kubesandbox-charts/kubesandbox/charts/kubesandbox-challenges/**'
+      - 'backend/internal/content/**'
+      - 'backend/cmd/validate-bundles/**'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Validate bundles
+        working-directory: backend
+        run: go run ./cmd/validate-bundles -root ../kubesandbox-charts/kubesandbox/charts/kubesandbox-challenges/challenges

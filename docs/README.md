@@ -28,6 +28,7 @@ system got here and are not maintained against the current code.
 | [`history/hot-pool-implementation-brief.md`](./history/hot-pool-implementation-brief.md) | The agent handoff brief that specified the hot pool; the as-built result is `reference/hot-pool-design.md`. |
 | [`history/challenges-feasibility-spike.md`](./history/challenges-feasibility-spike.md) | Feasibility pass on 64 scraped iximiuz-style challenges against the vcluster model: what works today, what needed the NetworkPolicy-sync fix (shipped), and what's architecturally out of reach (real multi-node, static pods, kubeadm upgrade). Also surfaced a Pod Security Standard gap. |
 | [`history/platform-limitations-and-challenges-decision.md`](./history/platform-limitations-and-challenges-decision.md) | Capability matrix vs. a real cluster and vs. iximiuz Labs / KodeKloud / Killercoda, and the decision to build challenge content scoped to workload/policy/troubleshooting skills — not cluster-administration. |
+| [`history/challenge-seeding-design-note.md`](./history/challenge-seeding-design-note.md) | Why baking challenge state into hot-pool members breaks pool fungibility, and the resolution: seed challenge manifests into the tenant vcluster at assignment time, not at pool-warm time. Not yet implemented. |
 
 ## Conventions
 

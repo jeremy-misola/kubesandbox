@@ -41,12 +41,39 @@ type Resources struct {
 var DefaultResources = Resources{CPU: "500m", Memory: "512Mi"}
 
 // CreateSessionRequest is the JSON body of POST /api/sessions.
-// workspaceImage/starterLabRef are honored only on the legacy direct-create
-// path; hot-pool assignment hands over a pre-provisioned, uniform sandbox.
+// workspaceImage is honored only on the legacy direct-create path; hot-pool
+// assignment hands over a pre-provisioned, uniform sandbox.
+//
+// This struct rides the assignment queue verbatim, which is what lets a
+// queued challenge request survive to admission — and it is the exact struct
+// a future Redis-backed queue must round-trip in full (design §15).
 type CreateSessionRequest struct {
 	TTLMinutes     int    `json:"ttlMinutes,omitempty"`
 	WorkspaceImage string `json:"workspaceImage,omitempty"`
-	StarterLabRef  string `json:"starterLabRef,omitempty"`
+	// ChallengeID selects a guided challenge to seed into the session's
+	// vcluster after assignment. Validated against the content catalog
+	// (unknown id → 400). starterLabRef is the deprecated alias.
+	ChallengeID   string `json:"challengeId,omitempty"`
+	StarterLabRef string `json:"starterLabRef,omitempty"`
+}
+
+// EffectiveChallengeID resolves challengeId with the deprecated starterLabRef
+// alias.
+func (r CreateSessionRequest) EffectiveChallengeID() string {
+	if r.ChallengeID != "" {
+		return r.ChallengeID
+	}
+	return r.StarterLabRef
+}
+
+// ChallengeRef is the session payload's challenge block. The frontend gates
+// the terminal + instructions panel on SeedState == "seeded" (same pattern as
+// the workspaceReady gate).
+type ChallengeRef struct {
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	// SeedState is pending | seeding | seeded | failed.
+	SeedState string `json:"seedState"`
 }
 
 // Session is the API representation of a KubeSandboxSession returned to clients.
@@ -75,6 +102,29 @@ type Session struct {
 	// URL is the browser terminal URL: "{PublicBaseURL}/s/{id}".
 	URL       string `json:"url,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
+
+	// Challenge is present when the session was created for a guided
+	// challenge. While seeding, Phase reports the synthetic "Seeding".
+	Challenge *ChallengeRef `json:"challenge,omitempty"`
+}
+
+// GradeResult is the response of POST /api/sessions/{id}/challenge/grade.
+// Steps are independent and ALL evaluated (no short-circuit — the user sees
+// everything left to fix); Pass is the conjunction.
+type GradeResult struct {
+	ChallengeID string      `json:"challengeId"`
+	Pass        bool        `json:"pass"`
+	Steps       []GradeStep `json:"steps"`
+	GradedAt    string      `json:"gradedAt"`
+}
+
+// GradeStep is one step's outcome. Message names the object and the observed
+// vs expected value on failure — never evaluator internals.
+type GradeStep struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+	Pass        bool   `json:"pass"`
+	Message     string `json:"message,omitempty"`
 }
 
 // QueueStatus is returned when the warm pool is empty and the request has been

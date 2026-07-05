@@ -42,6 +42,9 @@ var (
 	provisionBuckets = []float64{1, 2, 5, 10, 20, 30, 60, 120}
 	queueWaitBuckets = []float64{.5, 1, 2, 5, 10, 30, 60, 120}
 	reconcileBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5}
+	// seedBuckets cover the measured 1-2s bundle apply with headroom up to the
+	// 10s seeder budget; seed p95 > 5s is an alert candidate (design §12).
+	seedBuckets = []float64{.25, .5, 1, 2, 3, 5, 10, 20}
 )
 
 // Setup builds the MeterProvider (OTLP/HTTP exporter + periodic reader),

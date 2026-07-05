@@ -9,12 +9,13 @@
 # (Argo/Authentik/other apps' credentials included) if it were ever
 # compromised — a large blast radius for no functional benefit. The `secrets`
 # and `namespaces` grants have been removed entirely: the backend Go code
-# never calls the Secrets or Namespaces API (verified — it only reads
-# OIDC/session secrets via env vars injected by the Helm chart, and vcluster
-# kubeconfig retrieval is done by the ttyd shell pod via a mounted Secret
-# volume, not by the backend). If a future feature needs the backend to read
-# Secrets, add a narrowly-scoped grant for that specific namespace/purpose at
-# that time rather than restoring a cluster-wide one
+# never calls the Secrets or Namespaces API against THIS namespace. The one
+# Secret the backend does read — the per-session vcluster kubeconfig for
+# challenge seeding/grading — is granted by a per-session Role/RoleBinding
+# composed into each session namespace, restricted with resourceNames to
+# exactly that Secret (see kubeconfig-reader-role in the composition, design
+# docs/history/challenges-backend-architecture.md §5.2). Never restore a
+# cluster-wide secrets grant here.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -29,9 +30,13 @@ rules:
       - kubesandboxsessions
       - kubesandboxsessions/status
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Per-owner marker ConfigMaps (hot-pool Phase D): the one-sandbox-per-user
-  # guarantee is an atomic ConfigMap create (name derived from the owner) in
-  # this namespace only. Narrow grant, same namespace as the claims.
+  # ConfigMaps in this namespace serve two backend features:
+  # 1. Per-owner marker ConfigMaps (hot-pool Phase D): the one-sandbox-per-user
+  #    guarantee is an atomic ConfigMap create (name derived from the owner).
+  # 2. Challenge bundle ConfigMaps (guided challenges, design §4): the
+  #    ContentStore list/watches sbxchallenge-* ConfigMaps rendered by the
+  #    kubesandbox-challenges chart into this same namespace (read-only use;
+  #    the write verbs below exist for the markers).
   - apiGroups: [""]
     resources:
       - configmaps

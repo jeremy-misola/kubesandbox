@@ -1,0 +1,29 @@
+{{- /*
+One ConfigMap per challenge directory (design §4). Keys:
+  challenge.yaml       — metadata + validation checks
+  <seed file basename> — each seed/*.yaml manifest (ConfigMap keys are flat,
+                         so seed files are stored by basename; the numeric
+                         prefixes carry the apply order)
+The ConfigMap name is sbxchallenge-<directory name>; the backend verifies at
+watch time that the bundle's id matches, and quarantines on mismatch.
+*/ -}}
+{{- range $path, $_ := .Files.Glob "challenges/*/challenge.yaml" }}
+{{- $dir := dir $path }}
+{{- $id := base $dir }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sbxchallenge-{{ $id }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    kubesandbox.com/challenge-bundle: "true"
+    app.kubernetes.io/managed-by: {{ $.Chart.Name }}
+data:
+  challenge.yaml: |
+{{ $.Files.Get $path | indent 4 }}
+{{- range $seedPath, $__ := $.Files.Glob (printf "%s/seed/*" $dir) }}
+  {{ base $seedPath }}: |
+{{ $.Files.Get $seedPath | indent 4 }}
+{{- end }}
+---
+{{- end }}

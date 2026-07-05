@@ -1,0 +1,11 @@
+# The Role the user must bind. Deliberately correct and complete — the
+# puzzle is the missing RoleBinding, not the Role's rules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]

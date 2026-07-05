@@ -1,0 +1,381 @@
+package challenges
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/jeremy-misola/kubesandbox/backend/internal/content"
+)
+
+// fakeTenantAPI is an in-memory TenantOps for check-evaluator tests. Objects
+// are keyed by kind; Get matches namespace+name, List filters by namespace
+// and label selector.
+type fakeTenantAPI struct {
+	objects map[string][]*unstructured.Unstructured // kind -> objects
+	allow   map[string]bool                         // "ns/sa verb resource accessNs" -> allowed
+}
+
+func (f *fakeTenantAPI) Apply(context.Context, string, *content.Bundle) error { return nil }
+func (f *fakeTenantAPI) DeleteSeeded(context.Context, string, string) error   { return nil }
+
+func (f *fakeTenantAPI) GetObject(_ context.Context, _ string, t content.TargetRef) (*unstructured.Unstructured, error) {
+	for _, o := range f.objects[t.Kind] {
+		if o.GetName() == t.Name && (t.Namespace == "" || o.GetNamespace() == t.Namespace) {
+			return o, nil
+		}
+	}
+	return nil, apierrors.NewNotFound(schema.GroupResource{Resource: strings.ToLower(t.Kind)}, t.Name)
+}
+
+func (f *fakeTenantAPI) ListObjects(_ context.Context, _ string, t content.TargetRef) ([]unstructured.Unstructured, error) {
+	sel := labels.Everything()
+	if t.LabelSelector != "" {
+		var err error
+		sel, err = labels.Parse(t.LabelSelector)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var out []unstructured.Unstructured
+	for _, o := range f.objects[t.Kind] {
+		if t.Namespace != "" && o.GetNamespace() != t.Namespace {
+			continue
+		}
+		if !sel.Matches(labels.Set(o.GetLabels())) {
+			continue
+		}
+		out = append(out, *o)
+	}
+	return out, nil
+}
+
+func (f *fakeTenantAPI) CanI(_ context.Context, _ string, sa content.SubjectRef, a content.AccessRef) (bool, error) {
+	key := fmt.Sprintf("%s/%s %s %s %s", sa.Namespace, sa.Name, a.Verb, a.Resource, a.Namespace)
+	allowed, ok := f.allow[key]
+	if !ok {
+		return false, nil
+	}
+	return allowed, nil
+}
+
+func obj(y map[string]interface{}) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: y}
+}
+
+func fixtureAPI() *fakeTenantAPI {
+	return &fakeTenantAPI{
+		objects: map[string][]*unstructured.Unstructured{
+			"RoleBinding": {obj(map[string]interface{}{
+				"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+				"metadata": map[string]interface{}{"name": "rb1", "namespace": "monitoring"},
+				"roleRef":  map[string]interface{}{"kind": "Role", "name": "pod-reader"},
+			})},
+			"Deployment": {obj(map[string]interface{}{
+				"apiVersion": "apps/v1", "kind": "Deployment",
+				"metadata": map[string]interface{}{"name": "metrics-agent", "namespace": "monitoring"},
+				"status":   map[string]interface{}{"availableReplicas": int64(1)},
+			}), obj(map[string]interface{}{
+				"apiVersion": "apps/v1", "kind": "Deployment",
+				"metadata": map[string]interface{}{"name": "broken", "namespace": "monitoring"},
+				"status":   map[string]interface{}{},
+			})},
+			"Pod": {obj(map[string]interface{}{
+				"apiVersion": "v1", "kind": "Pod",
+				"metadata": map[string]interface{}{
+					"name": "web-1", "namespace": "demo",
+					"labels": map[string]interface{}{"app": "web"},
+				},
+				"status": map[string]interface{}{"conditions": []interface{}{
+					map[string]interface{}{"type": "Ready", "status": "True"},
+				}},
+			}), obj(map[string]interface{}{
+				"apiVersion": "v1", "kind": "Pod",
+				"metadata": map[string]interface{}{
+					"name": "sad-1", "namespace": "demo",
+					"labels": map[string]interface{}{"app": "sad"},
+				},
+				"status": map[string]interface{}{"conditions": []interface{}{
+					map[string]interface{}{"type": "Ready", "status": "False"},
+				}},
+			})},
+			"NetworkPolicy": {obj(map[string]interface{}{
+				"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+				"metadata": map[string]interface{}{"name": "worker-lockdown", "namespace": "lockdown"},
+				"spec": map[string]interface{}{
+					"podSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{"app": "worker"},
+					},
+					"policyTypes": []interface{}{"Ingress", "Egress"},
+					"egress": []interface{}{map[string]interface{}{
+						"ports": []interface{}{
+							map[string]interface{}{"port": int64(53), "protocol": "UDP"},
+							map[string]interface{}{"port": int64(53), "protocol": "TCP"},
+						},
+					}},
+				},
+			})},
+			"ConfigMap": {obj(map[string]interface{}{
+				"apiVersion": "v1", "kind": "ConfigMap",
+				"metadata": map[string]interface{}{"name": "app-config", "namespace": "japan"},
+				"data":     map[string]interface{}{"dbhost": "x"},
+			})},
+		},
+		allow: map[string]bool{
+			"monitoring/metrics-agent list pods monitoring":   true,
+			"monitoring/metrics-agent delete pods monitoring": false,
+		},
+	}
+}
+
+func TestEvalCheckTable(t *testing.T) {
+	g := NewGrader(content.FixedStore{}, fixtureAPI())
+
+	rb := &content.TargetRef{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "RoleBinding", Namespace: "monitoring"}
+	npol := &content.TargetRef{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy", Namespace: "lockdown", Name: "worker-lockdown"}
+
+	cases := []struct {
+		name     string
+		check    content.Check
+		wantPass bool
+		wantMsg  string // substring of the failure message; "" = don't care
+	}{
+		// --- resourceExists ---
+		{
+			name:     "resourceExists by name",
+			check:    content.Check{Type: content.CheckResourceExists, Target: &content.TargetRef{APIVersion: "v1", Kind: "ConfigMap", Namespace: "japan", Name: "app-config"}},
+			wantPass: true,
+		},
+		{
+			name:     "resourceExists missing object",
+			check:    content.Check{Type: content.CheckResourceExists, Target: &content.TargetRef{APIVersion: "v1", Kind: "ConfigMap", Namespace: "japan", Name: "nope"}},
+			wantPass: false,
+			wantMsg:  "not found",
+		},
+		{
+			name: "resourceExists any-of-kind with where predicate (design-doc example)",
+			check: content.Check{Type: content.CheckResourceExists, Target: rb,
+				Where: []content.Predicate{{Path: ".roleRef.name", Equals: "pod-reader"}}},
+			wantPass: true,
+		},
+		{
+			name: "resourceExists where predicate miss names path and values",
+			check: content.Check{Type: content.CheckResourceExists, Target: rb,
+				Where: []content.Predicate{{Path: ".roleRef.name", Equals: "other-role"}}},
+			wantPass: false,
+			wantMsg:  `.roleRef.name is "pod-reader", want "other-role"`,
+		},
+		// --- resourceAbsent ---
+		{
+			name:     "resourceAbsent passes on missing",
+			check:    content.Check{Type: content.CheckResourceAbsent, Target: &content.TargetRef{APIVersion: "v1", Kind: "ConfigMap", Namespace: "japan", Name: "nope"}},
+			wantPass: true,
+		},
+		{
+			name:     "resourceAbsent fails on present",
+			check:    content.Check{Type: content.CheckResourceAbsent, Target: &content.TargetRef{APIVersion: "v1", Kind: "ConfigMap", Namespace: "japan", Name: "app-config"}},
+			wantPass: false,
+			wantMsg:  "expected absent",
+		},
+		// --- fieldEquals ---
+		{
+			name: "fieldEquals string via nested map path",
+			check: content.Check{Type: content.CheckFieldEquals, Target: npol,
+				Path: ".spec.podSelector.matchLabels.app", Equals: "worker"},
+			wantPass: true,
+		},
+		{
+			name: "fieldEquals numeric coercion (yaml int vs unstructured int64)",
+			check: content.Check{Type: content.CheckFieldEquals,
+				Target: &content.TargetRef{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "monitoring", Name: "metrics-agent"},
+				Path:   ".status.availableReplicas", Equals: float64(1)}, // YAML-decoded numbers arrive as float64
+			wantPass: true,
+		},
+		{
+			name: "fieldEquals mismatch message shows observed vs expected",
+			check: content.Check{Type: content.CheckFieldEquals, Target: npol,
+				Path: ".spec.podSelector.matchLabels.app", Equals: "db"},
+			wantPass: false,
+			wantMsg:  `is "worker", want "db"`,
+		},
+		{
+			name: "fieldEquals unset path",
+			check: content.Check{Type: content.CheckFieldEquals,
+				Target: &content.TargetRef{APIVersion: "v1", Kind: "ConfigMap", Namespace: "japan", Name: "app-config"},
+				Path:   ".data.db_host", Equals: "x"},
+			wantPass: false,
+			wantMsg:  ".data.db_host is not set",
+		},
+		// --- fieldMatches ---
+		{
+			name: "fieldMatches regex over serialized array (policyTypes)",
+			check: content.Check{Type: content.CheckFieldMatches, Target: npol,
+				Path: ".spec.policyTypes", Matches: "Egress"},
+			wantPass: true,
+		},
+		{
+			name: "fieldMatches serialized nested egress port",
+			check: content.Check{Type: content.CheckFieldMatches, Target: npol,
+				Path: ".spec.egress", Matches: `"port":53`},
+			wantPass: true,
+		},
+		{
+			name: "fieldMatches with list index path",
+			check: content.Check{Type: content.CheckFieldMatches, Target: npol,
+				Path: ".spec.policyTypes[0]", Matches: "^Ingress$"},
+			wantPass: true,
+		},
+		{
+			name: "fieldMatches no match",
+			check: content.Check{Type: content.CheckFieldMatches, Target: npol,
+				Path: ".spec.policyTypes", Matches: "IPBlock"},
+			wantPass: false,
+			wantMsg:  "want match",
+		},
+		// --- podReady ---
+		{
+			name:     "podReady by name",
+			check:    content.Check{Type: content.CheckPodReady, Target: &content.TargetRef{Namespace: "demo", Name: "web-1"}},
+			wantPass: true,
+		},
+		{
+			name:     "podReady by label selector",
+			check:    content.Check{Type: content.CheckPodReady, Target: &content.TargetRef{Namespace: "demo", LabelSelector: "app=web"}},
+			wantPass: true,
+		},
+		{
+			name:     "podReady not ready",
+			check:    content.Check{Type: content.CheckPodReady, Target: &content.TargetRef{Namespace: "demo", Name: "sad-1"}},
+			wantPass: false,
+			wantMsg:  "no pod is Ready",
+		},
+		{
+			name:     "podReady missing pod",
+			check:    content.Check{Type: content.CheckPodReady, Target: &content.TargetRef{Namespace: "demo", Name: "ghost"}},
+			wantPass: false,
+			wantMsg:  "not found",
+		},
+		// --- deploymentAvailable ---
+		{
+			name:     "deploymentAvailable meets default threshold",
+			check:    content.Check{Type: content.CheckDeploymentAvailable, Target: &content.TargetRef{Namespace: "monitoring", Name: "metrics-agent"}},
+			wantPass: true,
+		},
+		{
+			name:     "deploymentAvailable zero available",
+			check:    content.Check{Type: content.CheckDeploymentAvailable, Target: &content.TargetRef{Namespace: "monitoring", Name: "broken"}},
+			wantPass: false,
+			wantMsg:  "availableReplicas 0, want >= 1",
+		},
+		{
+			name: "deploymentAvailable custom threshold",
+			check: content.Check{Type: content.CheckDeploymentAvailable, MinAvailable: 3,
+				Target: &content.TargetRef{Namespace: "monitoring", Name: "metrics-agent"}},
+			wantPass: false,
+			wantMsg:  "want >= 3",
+		},
+		// --- subjectCan / subjectCannot ---
+		{
+			name: "subjectCan allowed",
+			check: content.Check{Type: content.CheckSubjectCan,
+				ServiceAccount: &content.SubjectRef{Namespace: "monitoring", Name: "metrics-agent"},
+				Access:         &content.AccessRef{Verb: "list", Resource: "pods", Namespace: "monitoring"}},
+			wantPass: true,
+		},
+		{
+			name: "subjectCan denied",
+			check: content.Check{Type: content.CheckSubjectCan,
+				ServiceAccount: &content.SubjectRef{Namespace: "monitoring", Name: "metrics-agent"},
+				Access:         &content.AccessRef{Verb: "delete", Resource: "pods", Namespace: "monitoring"}},
+			wantPass: false,
+			wantMsg:  "cannot delete pods in monitoring (want allowed)",
+		},
+		{
+			name: "subjectCannot passes on denial",
+			check: content.Check{Type: content.CheckSubjectCannot,
+				ServiceAccount: &content.SubjectRef{Namespace: "monitoring", Name: "metrics-agent"},
+				Access:         &content.AccessRef{Verb: "delete", Resource: "pods", Namespace: "monitoring"}},
+			wantPass: true,
+		},
+		{
+			name: "subjectCannot fails on allowed",
+			check: content.Check{Type: content.CheckSubjectCannot,
+				ServiceAccount: &content.SubjectRef{Namespace: "monitoring", Name: "metrics-agent"},
+				Access:         &content.AccessRef{Verb: "list", Resource: "pods", Namespace: "monitoring"}},
+			wantPass: false,
+			wantMsg:  "want forbidden",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pass, msg, err := g.evalCheck(context.Background(), "s-x", tc.check)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if pass != tc.wantPass {
+				t.Fatalf("pass = %v (msg %q), want %v", pass, msg, tc.wantPass)
+			}
+			if !pass && tc.wantMsg != "" && !strings.Contains(msg, tc.wantMsg) {
+				t.Fatalf("message %q, want containing %q", msg, tc.wantMsg)
+			}
+			if pass && msg != "" {
+				t.Fatalf("passing checks must not carry a message: %q", msg)
+			}
+		})
+	}
+}
+
+func TestGradeEvaluatesAllStepsNoShortCircuit(t *testing.T) {
+	y := `apiVersion: content.kubesandbox.com/v1
+id: multi-step
+title: T
+description: d
+category: rbac
+difficulty: easy
+validate:
+  - id: fails-first
+    description: an object that is missing
+    checks:
+      - type: resourceExists
+        target: {apiVersion: v1, kind: ConfigMap, namespace: japan, name: nope}
+  - id: passes-second
+    description: an object that exists
+    checks:
+      - type: resourceExists
+        target: {apiVersion: v1, kind: ConfigMap, namespace: japan, name: app-config}
+`
+	b, err := content.LoadBundle([]byte(y), map[string][]byte{
+		"00-ns.yaml": []byte("apiVersion: v1\nkind: Namespace\nmetadata: {name: japan}\n"),
+	})
+	if err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	g := NewGrader(content.FixedStore{"multi-step": b}, fixtureAPI())
+
+	res, err := g.Grade(context.Background(), "s-x", "multi-step")
+	if err != nil {
+		t.Fatalf("Grade: %v", err)
+	}
+	if res.Pass {
+		t.Fatalf("overall pass must be the conjunction")
+	}
+	if len(res.Steps) != 2 {
+		t.Fatalf("steps = %d — ALL steps must be evaluated, no short-circuit (§7)", len(res.Steps))
+	}
+	if res.Steps[0].Pass || res.Steps[0].Message == "" {
+		t.Fatalf("first step should fail with a message: %+v", res.Steps[0])
+	}
+	if !res.Steps[1].Pass {
+		t.Fatalf("second step should pass despite the first failing: %+v", res.Steps[1])
+	}
+	if res.ChallengeID != "multi-step" || res.GradedAt == "" {
+		t.Fatalf("result envelope incomplete: %+v", res)
+	}
+}

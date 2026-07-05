@@ -1,0 +1,14 @@
+apiVersion: v2
+name: kubesandbox-challenges
+description: >-
+  Challenge content delivery for KubeSandbox guided challenges
+  (docs/history/challenges-backend-architecture.md §4). Renders each directory
+  under challenges/ into ONE ConfigMap (challenge.yaml + one key per seed
+  file), labeled kubesandbox.com/challenge-bundle=true, in the backend's
+  session namespace. ArgoCD syncs it like everything else, so adding a
+  challenge is a git push — no backend rebuild or restart. Bundles are linted
+  in CI by backend/cmd/validate-bundles (the same validator the backend runs
+  at watch time).
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

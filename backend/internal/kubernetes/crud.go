@@ -59,6 +59,7 @@ func (s *SessionService) Delete(ctx context.Context, id, ownerRef string) error 
 		}
 		return fmt.Errorf("delete claim: %w", err)
 	}
+	s.notifyClaimDeleted(obj.GetName())
 	_ = s.deleteOwnerMarker(ctx, ownerRef)
 	return nil
 }
@@ -123,6 +124,9 @@ func (s *SessionService) listManaged(ctx context.Context) ([]unstructured.Unstru
 
 // deleteByName deletes a claim by name with background propagation, so a slow
 // child finalizer never blocks the caller. An already-gone claim is success.
+// Fires the per-session cache hook, so TTL reaps, pool recycles/trims and
+// seeder recycles all invalidate the tenant-client cache (Delete above covers
+// the user-initiated path).
 func (s *SessionService) deleteByName(ctx context.Context, name string) error {
 	policy := metav1.DeletePropagationBackground
 	if err := s.resource().Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &policy}); err != nil {
@@ -131,5 +135,6 @@ func (s *SessionService) deleteByName(ctx context.Context, name string) error {
 		}
 		return fmt.Errorf("delete claim %q: %w", name, err)
 	}
+	s.notifyClaimDeleted(name)
 	return nil
 }

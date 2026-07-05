@@ -1,0 +1,10 @@
+# The broken piece: the Deployment's env references key "db_host", but this
+# ConfigMap ships key "dbhost" — a classic one-character-ish typo. The pod
+# sits in CreateContainerConfigError until the user adds the right key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: japan
+data:
+  dbhost: db.internal.example.com

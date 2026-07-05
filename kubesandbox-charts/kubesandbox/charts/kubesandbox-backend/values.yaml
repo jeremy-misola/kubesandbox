@@ -173,6 +173,30 @@ pool:
   # Pool manager periodic reconcile (safety net behind the claim watch).
   resyncSeconds: 30
 
+# Guided challenges (docs/history/challenges-backend-architecture.md): content
+# comes from the kubesandbox-challenges chart (one ConfigMap per bundle in
+# config.namespace); the backend seeds asynchronously after assignment and
+# grades on demand against the tenant vcluster. Timing knobs mirror the
+# design defaults; none should need tuning in normal operation.
+challenges:
+  enabled: true
+  # Budget for one seed apply attempt (measured bundle apply is 1-2s; §6.2).
+  seedTimeoutSeconds: 10
+  # Budget for the delete-and-wait phase of a challenge reset.
+  resetTimeoutSeconds: 60
+  # Retry-in-place ceiling per member before recycle-and-reassign (§6.3).
+  seedMaxAttempts: 3
+  # Backoff between in-place retries.
+  seedBackoffSeconds: 2
+  # Seeder level-triggered reconcile interval (crash-resume backstop).
+  seedResyncSeconds: 30
+  # Concurrent seed workers (CAS + SSA make concurrency safe).
+  seedWorkers: 2
+  # Per-session grade rate limit -> 429 under this interval (§7).
+  gradeMinIntervalSeconds: 2
+  # Content store list resync backstop behind the ConfigMap watch.
+  contentResyncSeconds: 300
+
 # vcluster control-plane shape (patched into the composition's Release values).
 # Burstable on purpose: the API server is CPU-hungry only during boot; the old
 # flat 200m limit inflated cold boot ~6x (docs/history/pause-resume-spike.md) and throttled pool refill.

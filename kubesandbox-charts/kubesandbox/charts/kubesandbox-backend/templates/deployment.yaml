@@ -76,6 +76,25 @@ spec:
               value: {{ .Values.pool.maxWarmAgeHours | quote }}
             - name: POOL_RESYNC_SECONDS
               value: {{ .Values.pool.resyncSeconds | quote }}
+            # --- Guided challenges (docs/history/challenges-backend-architecture.md) ---
+            - name: CHALLENGES_ENABLED
+              value: {{ .Values.challenges.enabled | quote }}
+            - name: CHALLENGE_SEED_TIMEOUT_SECONDS
+              value: {{ .Values.challenges.seedTimeoutSeconds | quote }}
+            - name: CHALLENGE_RESET_TIMEOUT_SECONDS
+              value: {{ .Values.challenges.resetTimeoutSeconds | quote }}
+            - name: CHALLENGE_SEED_MAX_ATTEMPTS
+              value: {{ .Values.challenges.seedMaxAttempts | quote }}
+            - name: CHALLENGE_SEED_BACKOFF_SECONDS
+              value: {{ .Values.challenges.seedBackoffSeconds | quote }}
+            - name: CHALLENGE_SEED_RESYNC_SECONDS
+              value: {{ .Values.challenges.seedResyncSeconds | quote }}
+            - name: CHALLENGE_SEED_WORKERS
+              value: {{ .Values.challenges.seedWorkers | quote }}
+            - name: CHALLENGE_GRADE_MIN_INTERVAL_SECONDS
+              value: {{ .Values.challenges.gradeMinIntervalSeconds | quote }}
+            - name: CHALLENGE_CONTENT_RESYNC_SECONDS
+              value: {{ .Values.challenges.contentResyncSeconds | quote }}
             # --- OTel metrics (docs/reference/observability-architecture.md) ---
             # Push model: OTLP/HTTP to the node-local otel-collector agent via
             # the downward API; no /metrics endpoint, no ServiceMonitor.

@@ -1,0 +1,46 @@
+# Vertical-slice RBAC challenge (docs/challenges.md:
+# troubleshoot-rbac-permissions-for-a-failing-deployment-7d545b29).
+apiVersion: content.kubesandbox.com/v1
+id: troubleshoot-rbac-permissions-for-a-failing-deployment
+title: Troubleshoot RBAC Permissions for a Failing Deployment
+description: >
+  The metrics-agent Deployment in the monitoring namespace never becomes
+  ready: its container polls the Kubernetes API for pods, but the
+  ServiceAccount it runs as lacks the permission to list them. A Role with
+  the right permissions already exists — fix the issue by binding it to the
+  ServiceAccount. Do not modify the Deployment.
+category: rbac
+difficulty: medium
+estMinutes: 15
+tags: [rbac, serviceaccount, rolebinding, ckad]
+hints:
+  - Check why the pod is not ready — kubectl describe pod -n monitoring, and
+    look at the readiness probe's error output.
+  - kubectl auth can-i list pods -n monitoring
+    --as=system:serviceaccount:monitoring:metrics-agent
+  - A Role named pod-reader already exists in the monitoring namespace.
+    What's missing between it and the ServiceAccount?
+
+validate:
+  - id: serviceaccount-can-list-pods
+    description: The metrics-agent ServiceAccount can list pods in monitoring
+    checks:
+      - type: subjectCan
+        serviceAccount: {namespace: monitoring, name: metrics-agent}
+        access: {verb: list, resource: pods, namespace: monitoring}
+  - id: rolebinding-references-role
+    description: A RoleBinding in monitoring grants the pod-reader Role
+    checks:
+      - type: resourceExists
+        target:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          namespace: monitoring
+        where:
+          - path: .roleRef.name
+            equals: pod-reader
+  - id: deployment-recovers
+    description: The metrics-agent Deployment reports all replicas available
+    checks:
+      - type: deploymentAvailable
+        target: {namespace: monitoring, name: metrics-agent}

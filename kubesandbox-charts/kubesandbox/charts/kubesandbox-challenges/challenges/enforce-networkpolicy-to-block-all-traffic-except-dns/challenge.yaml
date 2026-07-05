@@ -1,0 +1,80 @@
+# Vertical-slice NetworkPolicy challenge (docs/challenges.md:
+# enforce-networkpolicy-to-block-all-traffic-except-dns-a8b3855c).
+# NetworkPolicies actually enforce in KubeSandbox sessions because the
+# composition enables sync.toHost.networkPolicies (design §1).
+apiVersion: content.kubesandbox.com/v1
+id: enforce-networkpolicy-to-block-all-traffic-except-dns
+title: Enforce a NetworkPolicy to Block All Traffic Except DNS
+description: >
+  The worker Pod in the lockdown namespace must be fully isolated from the
+  cluster network: deny all incoming traffic, and block all outgoing traffic
+  except DNS queries on port 53 (TCP and UDP). Create a NetworkPolicy named
+  worker-lockdown in the lockdown namespace that selects the worker pods
+  (label app=worker) and enforces exactly that.
+category: networkpolicy
+difficulty: medium
+estMinutes: 15
+tags: [networkpolicy, security, dns, ckad]
+hints:
+  - A policy with both Ingress and Egress in policyTypes and no ingress rules
+    denies all inbound traffic.
+  - An egress rule with only a ports section (no to selector) allows that
+    port to anywhere.
+  - Remember DNS uses both UDP and TCP on port 53.
+
+validate:
+  - id: policy-selects-worker
+    description: worker-lockdown exists in lockdown and selects app=worker
+    checks:
+      - type: resourceExists
+        target:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          namespace: lockdown
+          name: worker-lockdown
+        where:
+          - path: .spec.podSelector.matchLabels.app
+            equals: worker
+  - id: blocks-ingress-and-egress
+    description: The policy applies to both Ingress and Egress traffic
+    checks:
+      - type: fieldMatches
+        target:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          namespace: lockdown
+          name: worker-lockdown
+        path: .spec.policyTypes
+        matches: Ingress
+      - type: fieldMatches
+        target:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          namespace: lockdown
+          name: worker-lockdown
+        path: .spec.policyTypes
+        matches: Egress
+  - id: dns-egress-allowed
+    description: Egress permits port 53 (UDP and TCP)
+    checks:
+      - type: fieldMatches
+        target:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          namespace: lockdown
+          name: worker-lockdown
+        path: .spec.egress
+        matches: '"port":53'
+      - type: fieldMatches
+        target:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          namespace: lockdown
+          name: worker-lockdown
+        path: .spec.egress
+        matches: '"UDP"'
+  - id: worker-still-running
+    description: The worker Deployment is still available (isolation, not deletion)
+    checks:
+      - type: deploymentAvailable
+        target: {namespace: lockdown, name: worker}

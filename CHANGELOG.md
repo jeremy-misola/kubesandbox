@@ -8,6 +8,86 @@ today. Newest first.
 
 ---
 
+## rev 27 — 2026-07-04 — Guided challenges: backend (content pipeline, seeder, grader, API)
+
+Implements `docs/history/challenges-backend-architecture.md` end to end,
+backend + charts only (frontend is the next track). The hot pool is untouched
+(`pool.go`/`warm.go` unchanged — warm members stay identical, ownerless,
+fungible), `/authz` is untouched, and there is no XRD migration: challenge
+selection rides the existing unused `spec.starterLabRef`, and all seed state
+lives in claim annotations.
+
+**De-risk spike first (design §13.0, verified live on prod-k3s).** From a pod
+in the backend namespace, the composed `vc-{ns}-{name}-vcluster` Secret's
+kubeconfig worked AS-IS against the in-cluster Service DNS — listed pods and
+namespaces inside a live warm member's vcluster. The §5.1 network-path and
+kubeconfig assumptions hold; everything else was built on that.
+
+**Content pipeline (§4).** New `internal/content`: bundle schema types
+(`content.kubesandbox.com/v1`), a shared validator, and the `ContentStore` —
+a namespace-scoped, label-filtered ConfigMap watcher (level-triggered
+watch+rebuild, same idiom as the pool manager) that quarantines invalid
+bundles (skip + log + `content.bundle_invalid` gauge) instead of crashing.
+Validation runs twice by design: `cmd/validate-bundles` lints every bundle
+pre-merge in CI (`.github/workflows/challenges.yml`) with the same Go
+validator the backend runs at watch time. A new `kubesandbox-challenges`
+subchart renders one ConfigMap per challenge directory; three real bundles
+ship as the vertical slice (RBAC troubleshooting, NetworkPolicy DNS lockdown,
+missing-ConfigMap-key debugging). Seed manifests and check targets are
+restricted to a closed known-kinds table — no discovery/RESTMapper machinery
+anywhere, and CI rejects unsupported kinds before they can reach a cluster.
+
+**Tenant client (§5).** `internal/kubernetes/tenant.go`: Secret → REST config
+→ dynamic client factory with a per-session LRU, invalidated on every claim
+delete path (user delete, TTL reap, pool recycle, seeder recycle). RBAC is a
+per-session Role/RoleBinding composed into each session namespace, restricted
+with `resourceNames` to exactly the one kubeconfig Secret — the cluster-wide
+secrets grant stays dead. The composition also gained a comment at the shell
+NetworkPolicy documenting the backend→vcluster path assumption.
+
+**Seeder (§6).** `internal/challenges`: assignment stamps
+`spec.starterLabRef` + `challenge-id`/`seed-state: pending` annotations in the
+SAME CAS Update that claims the member (atomic with ownership; `Assign()`
+stays sub-second, seeding is async). The seeder is channel-fed with a
+startup/resync level-triggered reconcile, so a crash mid-seed is a non-event.
+Applies are server-side apply (`fieldManager: kubesandbox-seeder`, force) in
+Namespace → RBAC → rest order. Failure ladder: 3 in-place retries → recycle +
+re-assign once (marker kept, original expiry preserved) → fail closed with
+the marker released. Every transition is rv-guarded — including the failure
+ladder: the `-race` concurrency test caught that escalation could delete a
+claim from a stale view, so recycle/fail-closed now CAS a fence annotation
+first and back off on conflict.
+
+**Grader + API (§7/§8).** On-demand only, reads against the tenant API (zero
+host control-plane load): `resourceExists/Absent` (with `where` predicates),
+`fieldEquals/Matches` (restricted JSONPath; arrays match on serialized JSON),
+`podReady`, `deploymentAvailable`, `subjectCan/Cannot` (SSAR while
+impersonating the tenant SA — grades the *effect* of RBAC). All steps are
+evaluated, no short-circuit. Endpoints: `GET /api/challenges[/{id}]` (hints
+by count, text via `?hints=n`; never seed manifests or check internals),
+`challengeId` on create (400 unknown), `challenge` block + synthetic
+`Seeding` phase on the Session model (frontend gates the terminal on
+`seedState == seeded`, same pattern as `workspaceReady`),
+`POST …/challenge/grade` (409 mid-seed, 404 no challenge, 429 under 2s),
+`POST …/challenge/reset` (durable intent: CAS `pending` + reset flag; the
+seeder deletes labeled state, waits, re-applies). Reset removes *seeded*
+state only — user clutter persists, per design. Metrics per §12; config via
+the existing env pattern (`CHALLENGES_*`, Helm `challenges.*`).
+
+**Tests.** `go test ./...` and `-race` pass. Seeder state machine covered
+end-to-end against the rv-enforcing fake (happy path, in-place retry, crash
+resume from `seeding`, recycle with marker/expiry preservation, fail-closed
+on second member / empty pool / unknown bundle, reset delete-then-reapply,
+concurrent Process convergence); every check type table-tested; content
+quarantine, LRU cache, atomic assign stamping, and the handler status
+contract (400/404/409/429/200/202) all unit-tested.
+
+**Not in scope** (per design): hint economy, exec/probe checks, progress
+persistence (phase 2), heavy/Helm bundles, frontend, Redis/leader election.
+Live verification checklist (§13.7) pending deploy.
+
+---
+
 ## rev 26 — 2026-07-04 — Frontend restyle: Luxury/Editorial design system + leanness pass
 
 Full visual re-skin of the SPA from the dark "Graphite" theme (Inter + a single

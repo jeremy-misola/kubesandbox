@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/middleware"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/content"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
@@ -18,14 +19,16 @@ const msgSessionExists = "you already have a sandbox (or one is still being clea
 type SessionHandler struct {
 	svc   *k8s.SessionService
 	queue *k8s.AssignQueue
+	// catalog validates challengeId on create (nil = challenges disabled).
+	catalog content.Store
 	// metrics is the injected instrument set; nil is a valid no-op.
 	metrics *telemetry.Metrics
 }
 
 // NewSessionHandler constructs a SessionHandler. metrics may be nil when
-// telemetry is disabled.
-func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, metrics *telemetry.Metrics) *SessionHandler {
-	return &SessionHandler{svc: svc, queue: queue, metrics: metrics}
+// telemetry is disabled; catalog may be nil when challenges are disabled.
+func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, catalog content.Store, metrics *telemetry.Metrics) *SessionHandler {
+	return &SessionHandler{svc: svc, queue: queue, catalog: catalog, metrics: metrics}
 }
 
 // Create handles POST /api/sessions. It assigns an already-warm sandbox (a
@@ -38,6 +41,24 @@ func (h *SessionHandler) Create(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "invalid_request", "request body is not valid JSON")
 		return
+	}
+
+	// Challenge selection (design §8): validate against the in-memory catalog
+	// BEFORE any assignment work — an unknown id must never consume a warm
+	// member or a queue slot. The id is normalized onto ChallengeID so the
+	// queue path (which serializes this exact struct) and Assign see one
+	// field regardless of which alias the client used.
+	if id := req.EffectiveChallengeID(); id != "" {
+		if h.catalog == nil {
+			respondError(c, http.StatusBadRequest, "challenges_disabled", "challenges are not enabled on this deployment")
+			return
+		}
+		if _, ok := h.catalog.Get(id); !ok {
+			respondError(c, http.StatusBadRequest, "unknown_challenge", "unknown challenge id: "+id)
+			return
+		}
+		req.ChallengeID = id
+		req.StarterLabRef = ""
 	}
 
 	sess, err := h.svc.Assign(c.Request.Context(), ident.Subject, req)

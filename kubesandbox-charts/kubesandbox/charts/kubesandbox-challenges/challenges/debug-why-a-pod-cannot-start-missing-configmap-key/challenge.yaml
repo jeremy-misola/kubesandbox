@@ -1,0 +1,41 @@
+# Vertical-slice troubleshooting challenge (docs/challenges.md:
+# debug-why-a-configmap-could-not-be-created-1589e713 — a Pod failing in the
+# japan namespace whose root cause the user must find and fix).
+# The seed applies CLEANLY; the resulting runtime state is intentionally
+# broken (CreateContainerConfigError) — that's what troubleshooting
+# challenges are (design §4, "must-apply gate" nuance).
+apiVersion: content.kubesandbox.com/v1
+id: debug-why-a-pod-cannot-start-missing-configmap-key
+title: Debug Why a Pod Cannot Start in the japan Namespace
+description: >
+  The web Deployment in the japan namespace is stuck — its pod never starts.
+  Investigate the pod's status and events, identify the root cause, and fix
+  it WITHOUT modifying the Deployment. When you're done, the pod should be
+  running and ready.
+category: troubleshooting
+difficulty: easy
+estMinutes: 10
+tags: [configmap, troubleshooting, ckad]
+hints:
+  - kubectl get pods -n japan — what does the STATUS column say?
+  - kubectl describe pod -n japan and read the events at the bottom.
+  - The container wants the db_host key from the app-config ConfigMap.
+    Compare that with what the ConfigMap actually contains.
+
+validate:
+  - id: configmap-key-present
+    description: The app-config ConfigMap has a non-empty db_host key
+    checks:
+      - type: fieldMatches
+        target:
+          apiVersion: v1
+          kind: ConfigMap
+          namespace: japan
+          name: app-config
+        path: .data.db_host
+        matches: .+
+  - id: deployment-recovers
+    description: The web Deployment reports all replicas available
+    checks:
+      - type: deploymentAvailable
+        target: {namespace: japan, name: web}

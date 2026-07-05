@@ -45,6 +45,15 @@ const (
 	// SSE stream kinds for sse.active_streams.
 	KindSession = "session"
 	KindQueue   = "queue"
+
+	// Seed outcomes for challenge.seed.attempts (design §12): success is a
+	// completed seed, retry is a failed in-place attempt, recycled is a
+	// member replaced after exhausting retries, failed is the terminal
+	// fail-closed outcome.
+	SeedResultSuccess  = "success"
+	SeedResultRetry    = "retry"
+	SeedResultRecycled = "recycled"
+	SeedResultFailed   = "failed"
 )
 
 // Metrics is the backend's instrument set, shared by the HTTP handlers, the
@@ -71,6 +80,17 @@ type Metrics struct {
 	reconcileDuration metric.Float64Histogram
 
 	sseActiveStreams metric.Int64UpDownCounter
+
+	// --- Guided challenges (design §12) ---
+	seedDuration       metric.Float64Histogram
+	seedAttempts       metric.Int64Counter
+	gradeRequests      metric.Int64Counter
+	tenantClientErrors metric.Int64Counter
+
+	// contentInvalidFn feeds the content.bundle.invalid gauge: the content
+	// store registers a snapshot of its quarantine set (bundle ConfigMap name
+	// -> 1), read at export time like the queue-depth gauge.
+	contentInvalidFn atomic.Value // func() map[string]int64
 
 	poolAvailable atomic.Int64
 	poolPending   atomic.Int64
@@ -147,6 +167,40 @@ func newMetrics(meter metric.Meter) (*Metrics, error) {
 
 	if m.sseActiveStreams, err = meter.Int64UpDownCounter("kubesandbox.sse.active_streams",
 		metric.WithDescription("Open SSE connections, by kind (session|queue)")); err != nil {
+		return nil, err
+	}
+
+	// --- Guided challenges (design §12) ---
+	if m.seedDuration, err = meter.Float64Histogram("kubesandbox.challenge.seed.duration",
+		metric.WithDescription("One successful seed apply, by challenge"), metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(seedBuckets...)); err != nil {
+		return nil, err
+	}
+	if m.seedAttempts, err = meter.Int64Counter("kubesandbox.challenge.seed.attempts",
+		metric.WithDescription("Seed attempts by result (success|retry|recycled|failed)")); err != nil {
+		return nil, err
+	}
+	if m.gradeRequests, err = meter.Int64Counter("kubesandbox.challenge.grade.requests",
+		metric.WithDescription("Grade requests by challenge and pass")); err != nil {
+		return nil, err
+	}
+	if m.tenantClientErrors, err = meter.Int64Counter("kubesandbox.challenge.tenant_client.errors",
+		metric.WithDescription("Failures building or using tenant vcluster clients")); err != nil {
+		return nil, err
+	}
+	contentInvalid, err := meter.Int64ObservableGauge("kubesandbox.challenge.content.bundle_invalid",
+		metric.WithDescription("Quarantined (invalid) content bundles, by bundle ConfigMap"))
+	if err != nil {
+		return nil, err
+	}
+	if _, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		if fn, ok := m.contentInvalidFn.Load().(func() map[string]int64); ok && fn != nil {
+			for bundle, v := range fn() {
+				o.ObserveInt64(contentInvalid, v, metric.WithAttributes(attribute.String("bundle", bundle)))
+			}
+		}
+		return nil
+	}, contentInvalid); err != nil {
 		return nil, err
 	}
 
@@ -331,4 +385,50 @@ func (m *Metrics) RegisterQueueDepth(fn func() int64) {
 		return
 	}
 	m.queueDepthFn.Store(fn)
+}
+
+// --- Guided challenges (design §12), all nil-safe ---
+
+// RecordSeedDuration records one successful end-to-end seed apply. The
+// challenge label is bounded by catalog size, not user count.
+func (m *Metrics) RecordSeedDuration(ctx context.Context, challenge string, d time.Duration) {
+	if m == nil || d <= 0 {
+		return
+	}
+	m.seedDuration.Record(ctx, d.Seconds(), metric.WithAttributes(attribute.String("challenge", challenge)))
+}
+
+// RecordSeedAttempt counts one seed outcome (success|retry|recycled|failed).
+// Alert candidate: any result="failed" (design §12).
+func (m *Metrics) RecordSeedAttempt(ctx context.Context, result string) {
+	if m == nil {
+		return
+	}
+	m.seedAttempts.Add(ctx, 1, metric.WithAttributes(attribute.String("result", result)))
+}
+
+// RecordGrade counts one grade request by challenge and outcome.
+func (m *Metrics) RecordGrade(ctx context.Context, challenge string, pass bool) {
+	if m == nil {
+		return
+	}
+	m.gradeRequests.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("challenge", challenge), attribute.Bool("pass", pass)))
+}
+
+// RecordTenantClientError counts one tenant-client build/use failure.
+func (m *Metrics) RecordTenantClientError(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.tenantClientErrors.Add(ctx, 1)
+}
+
+// RegisterContentInvalid wires the content bundle_invalid gauge to fn (a
+// snapshot of the content store's quarantine set).
+func (m *Metrics) RegisterContentInvalid(fn func() map[string]int64) {
+	if m == nil || fn == nil {
+		return
+	}
+	m.contentInvalidFn.Store(fn)
 }

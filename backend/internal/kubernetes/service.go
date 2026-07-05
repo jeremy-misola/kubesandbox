@@ -73,6 +73,20 @@ type SessionService struct {
 	// is a valid no-op.
 	metrics *telemetry.Metrics
 
+	// seedNotifier (optional) is poked with the claim name whenever a
+	// challenge session is assigned — the seeder's fast path. Seeding
+	// correctness never depends on it (the seeder's level-triggered reconcile
+	// is authoritative), so it must never block.
+	seedNotifier func(claimName string)
+
+	// challengeTitle (optional) resolves a challenge id to its display title
+	// for the session payload (set from the content store).
+	challengeTitle func(id string) (string, bool)
+
+	// claimDeleted (optional) is invoked after any claim delete so per-session
+	// caches (the tenant-client LRU) can be invalidated.
+	claimDeleted func(claimName string)
+
 	now func() time.Time // injectable for tests
 }
 
@@ -92,6 +106,33 @@ func (s *SessionService) SetMaxWarmAge(d time.Duration) { s.maxWarmAge = d }
 
 // SetMetrics injects the telemetry instrument set (nil is a valid no-op).
 func (s *SessionService) SetMetrics(m *telemetry.Metrics) { s.metrics = m }
+
+// SetSeedNotifier wires the seeder's fast path (nil is a valid no-op).
+func (s *SessionService) SetSeedNotifier(fn func(claimName string)) { s.seedNotifier = fn }
+
+// SetChallengeTitleLookup wires challenge title resolution for session
+// payloads (nil is a valid no-op).
+func (s *SessionService) SetChallengeTitleLookup(fn func(id string) (string, bool)) {
+	s.challengeTitle = fn
+}
+
+// SetClaimDeletedHook wires per-session cache invalidation on claim deletes
+// (nil is a valid no-op).
+func (s *SessionService) SetClaimDeletedHook(fn func(claimName string)) { s.claimDeleted = fn }
+
+// notifySeed pokes the seeder without ever blocking the assign path.
+func (s *SessionService) notifySeed(claimName string) {
+	if s.seedNotifier != nil {
+		s.seedNotifier(claimName)
+	}
+}
+
+// notifyClaimDeleted invalidates per-session caches after a delete.
+func (s *SessionService) notifyClaimDeleted(claimName string) {
+	if s.claimDeleted != nil {
+		s.claimDeleted(claimName)
+	}
+}
 
 func (s *SessionService) resource() dynamic.ResourceInterface {
 	return s.client.Resource(models.GVR).Namespace(s.namespace)
@@ -189,6 +230,34 @@ func (s *SessionService) ToSession(obj *unstructured.Unstructured) models.Sessio
 	if sess.Phase == "" {
 		sess.Phase = "Pending"
 	}
+
+	// Challenge surface (design §6.4): expose the challenge block and derive
+	// the synthetic Seeding phase. No XRD change — claimed + challenge-id set
+	// + not seeded → "Seeding". The existing SSE claim watch streams the
+	// annotation flips, so the frontend needs no new plumbing. The frontend
+	// gates the terminal + instructions on seedState == seeded (the same
+	// pattern as the workspaceReady gate) — that, not /authz, is what keeps a
+	// user off a half-seeded cluster during the 1-2s window.
+	if id := ChallengeID(obj); id != "" {
+		ref := &models.ChallengeRef{ID: id, SeedState: SeedState(obj)}
+		if s.challengeTitle != nil {
+			if title, ok := s.challengeTitle(id); ok {
+				ref.Title = title
+			}
+		}
+		sess.Challenge = ref
+		if sess.OwnerRef != "" {
+			switch ref.SeedState {
+			case SeedStatePending, SeedStateSeeding:
+				sess.Phase = "Seeding"
+				sess.Message = "Preparing your challenge…"
+			case SeedStateFailed:
+				sess.Phase = "Error"
+				sess.Message = "challenge preparation failed; delete the session and try again"
+			}
+		}
+	}
+
 	sess.URL = s.baseURL + "/s/" + sess.ID
 	return sess
 }

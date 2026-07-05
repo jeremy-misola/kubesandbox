@@ -8,12 +8,11 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/handlers"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api/middleware"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/content"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
-// NewRouter builds the Gin engine.
-//
 // Routes:
 //
 //	GET  /health, /healthz  — unauthenticated kubelet probes at root.
@@ -23,7 +22,11 @@ import (
 //	                          ownership check.
 //	GET  /oauth2/callback   — OIDC callback: exchange code, set session cookie,
 //	                          redirect to original URL. No auth.
-func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue, metrics *telemetry.Metrics) *gin.Engine {
+//
+// NewRouter builds the Gin engine. catalog and challengeHandler are nil when
+// challenges are disabled: the /api/challenges surface is then absent and
+// challengeId on create is rejected.
+func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue, catalog content.Store, challengeHandler *handlers.ChallengeHandler, metrics *telemetry.Metrics) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 	// HTTP server metrics (http.server.request.duration, labelled by templated
@@ -34,7 +37,7 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueu
 	r.GET("/health", handlers.Health)
 	r.GET("/healthz", handlers.Health)
 
-	sessions := handlers.NewSessionHandler(svc, queue, metrics)
+	sessions := handlers.NewSessionHandler(svc, queue, catalog, metrics)
 
 	api := r.Group("/api")
 	api.Use(middleware.IdentityMiddleware(cfg))
@@ -47,6 +50,14 @@ func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueu
 		api.GET("/sessions/:id/events", sessions.Events)
 		api.GET("/queue", sessions.QueuePosition)
 		api.GET("/queue/events", sessions.QueueEvents)
+
+		// Guided challenges (design §8).
+		if challengeHandler != nil {
+			api.GET("/challenges", challengeHandler.List)
+			api.GET("/challenges/:id", challengeHandler.Get)
+			api.POST("/sessions/:id/challenge/grade", challengeHandler.Grade)
+			api.POST("/sessions/:id/challenge/reset", challengeHandler.Reset)
+		}
 	}
 
 	// Ext-authz endpoint. No IdentityMiddleware: identity comes from the session

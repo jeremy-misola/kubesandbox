@@ -16,7 +16,10 @@ import (
 	"time"
 
 	"github.com/jeremy-misola/kubesandbox/backend/internal/api"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/api/handlers"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/challenges"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/content"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
@@ -50,7 +53,61 @@ func main() {
 
 	queue := k8s.NewAssignQueue()
 	queue.SetMetrics(metrics)
-	router := api.NewRouter(cfg, svc, queue, metrics)
+
+	// Background loops; cancelled on shutdown.
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+
+	// Guided challenges (docs/history/challenges-backend-architecture.md):
+	// content store (ConfigMaps via GitOps), tenant-client factory, async
+	// seeder and on-demand grader. All strictly off the request path.
+	var (
+		catalog          content.Store
+		challengeHandler *handlers.ChallengeHandler
+	)
+	if cfg.ChallengesEnabled {
+		store := content.NewConfigMapStore(client, cfg.Namespace, cfg.ChallengeContentResync)
+		store.SetMetrics(metrics)
+		// Synchronous initial fill so create-with-challengeId validates
+		// correctly from the very first request after startup.
+		if err := store.RebuildOnce(bgCtx); err != nil {
+			log.Printf("challenges: initial catalog build failed (will retry via watch/resync): %v", err)
+		}
+		go store.Run(bgCtx)
+		catalog = store
+
+		factory := k8s.NewTenantClientFactory(client, cfg.Namespace, 32)
+		tenantOps := challenges.NewTenantOps(factory, metrics)
+
+		seeder := challenges.NewSeeder(svc, store, tenantOps, challenges.SeederConfig{
+			Budget:      cfg.ChallengeSeedTimeout,
+			ResetBudget: cfg.ChallengeResetTimeout,
+			MaxAttempts: cfg.ChallengeSeedMaxAttempts,
+			Backoff:     cfg.ChallengeSeedBackoff,
+			Resync:      cfg.ChallengeSeedResync,
+			Workers:     cfg.ChallengeSeedWorkers,
+		})
+		seeder.SetMetrics(metrics)
+		go seeder.Run(bgCtx)
+
+		grader := challenges.NewGrader(store, tenantOps)
+		grader.SetMetrics(metrics)
+
+		// Session-service hooks: fast-path seed notification, challenge
+		// titles on session payloads, tenant-cache invalidation on deletes.
+		svc.SetSeedNotifier(seeder.Enqueue)
+		svc.SetChallengeTitleLookup(func(id string) (string, bool) {
+			if b, ok := store.Get(id); ok {
+				return b.Title, true
+			}
+			return "", false
+		})
+		svc.SetClaimDeletedHook(factory.Invalidate)
+
+		challengeHandler = handlers.NewChallengeHandler(store, svc, grader, seeder, cfg.ChallengeGradeMinInterval)
+		log.Printf("challenges: enabled (namespace=%s seedTimeout=%s)", cfg.Namespace, cfg.ChallengeSeedTimeout)
+	}
+
+	router := api.NewRouter(cfg, svc, queue, catalog, challengeHandler, metrics)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -59,8 +116,6 @@ func main() {
 		// No write timeout: SSE responses are long-lived.
 	}
 
-	// Background TTL cleanup loop; cancelled on shutdown.
-	bgCtx, bgCancel := context.WithCancel(context.Background())
 	ttl := k8s.NewTTLController(svc, cfg.TTLCleanupInterval)
 	ttl.SetMetrics(metrics)
 	go ttl.Run(bgCtx)
@@ -90,7 +145,7 @@ func main() {
 	<-stop
 
 	log.Println("shutting down...")
-	bgCancel() // stop the TTL loop
+	bgCancel() // stop the background loops (TTL, pool, content store, seeder)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

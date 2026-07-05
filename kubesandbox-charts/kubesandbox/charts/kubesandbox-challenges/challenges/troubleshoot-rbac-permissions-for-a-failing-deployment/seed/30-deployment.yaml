@@ -1,0 +1,62 @@
+# The failing Deployment: its readiness probe lists pods via the virtual API
+# server as the metrics-agent ServiceAccount. Until the user binds pod-reader
+# to that SA, the probe fails and availableReplicas stays 0 — an honest,
+# observable RBAC failure, not a simulated one.
+#
+# Runtime notes (constraints every seed workload must respect):
+# - PSA "restricted" is enforced by the tenant's virtual API server, hence the
+#   full securityContext.
+# - The host session namespace carries a ResourceQuota, so synced pods MUST
+#   declare requests and limits or admission rejects them.
+# - alpine/k8s is multi-arch and already used by the sweep CronJob, so the
+#   image is warm on the nodes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-agent
+  namespace: monitoring
+  labels:
+    app: metrics-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-agent
+  template:
+    metadata:
+      labels:
+        app: metrics-agent
+    spec:
+      serviceAccountName: metrics-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: alpine/k8s:1.31.1
+          command: ["sh", "-c", "sleep infinity"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            exec:
+              command:
+                - kubectl
+                - get
+                - pods
+                - -n
+                - monitoring
+                - --request-timeout=5s
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 8
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

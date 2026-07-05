@@ -1,0 +1,41 @@
+# The workload to isolate. nginx-unprivileged binds :8080 as a non-root user,
+# so it satisfies the tenant's PSA "restricted" profile out of the box.
+# Requests/limits are mandatory: the host session namespace has a
+# ResourceQuota that rejects pods without them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: lockdown
+  labels:
+    app: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

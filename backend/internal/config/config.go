@@ -51,6 +51,31 @@ type Config struct {
 	// PoolResync is the pool manager's periodic reconcile interval.
 	PoolResync time.Duration
 
+	// --- Guided challenges (docs/history/challenges-backend-architecture.md) ---
+
+	// ChallengesEnabled gates the whole feature: content store, seeder,
+	// grader and the /api/challenges surface. challengeId on create is
+	// rejected when disabled.
+	ChallengesEnabled bool
+	// ChallengeSeedTimeout bounds one seed apply attempt (§6.2: generous
+	// against the measured 1-2s).
+	ChallengeSeedTimeout time.Duration
+	// ChallengeResetTimeout bounds the delete-and-wait phase of a reset.
+	ChallengeResetTimeout time.Duration
+	// ChallengeSeedMaxAttempts is the retry-in-place ceiling per member.
+	ChallengeSeedMaxAttempts int
+	// ChallengeSeedBackoff separates in-place retries.
+	ChallengeSeedBackoff time.Duration
+	// ChallengeSeedResync is the seeder's level-triggered reconcile interval.
+	ChallengeSeedResync time.Duration
+	// ChallengeSeedWorkers is the seeder's worker count.
+	ChallengeSeedWorkers int
+	// ChallengeGradeMinInterval is the per-session grade rate limit (429
+	// under it) — guards against a held-down retry key (§7).
+	ChallengeGradeMinInterval time.Duration
+	// ChallengeContentResync is the content store's list resync backstop.
+	ChallengeContentResync time.Duration
+
 	// --- Backend-owned session auth ---
 
 	// OIDCIssuer is the Authentik provider issuer URL
@@ -88,6 +113,18 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func getenvBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 func getenvInt(key string, def int) int {
@@ -146,6 +183,16 @@ func Load() Config {
 		PoolMaxTotal:   getenvInt("POOL_MAX_TOTAL", 60),
 		PoolMaxWarmAge: time.Duration(getenvInt("POOL_MAX_WARM_AGE_HOURS", 24)) * time.Hour,
 		PoolResync:     time.Duration(getenvInt("POOL_RESYNC_SECONDS", 30)) * time.Second,
+
+		ChallengesEnabled:         getenvBool("CHALLENGES_ENABLED", true),
+		ChallengeSeedTimeout:      time.Duration(getenvInt("CHALLENGE_SEED_TIMEOUT_SECONDS", 10)) * time.Second,
+		ChallengeResetTimeout:     time.Duration(getenvInt("CHALLENGE_RESET_TIMEOUT_SECONDS", 60)) * time.Second,
+		ChallengeSeedMaxAttempts:  getenvInt("CHALLENGE_SEED_MAX_ATTEMPTS", 3),
+		ChallengeSeedBackoff:      time.Duration(getenvInt("CHALLENGE_SEED_BACKOFF_SECONDS", 2)) * time.Second,
+		ChallengeSeedResync:       time.Duration(getenvInt("CHALLENGE_SEED_RESYNC_SECONDS", 30)) * time.Second,
+		ChallengeSeedWorkers:      getenvInt("CHALLENGE_SEED_WORKERS", 2),
+		ChallengeGradeMinInterval: time.Duration(getenvInt("CHALLENGE_GRADE_MIN_INTERVAL_SECONDS", 2)) * time.Second,
+		ChallengeContentResync:    time.Duration(getenvInt("CHALLENGE_CONTENT_RESYNC_SECONDS", 300)) * time.Second,
 
 		OIDCIssuer:        oidcIssuer,
 		OIDCClientID:      getenv("OIDC_CLIENT_ID", ""),

@@ -1,0 +1,4 @@
+# Namespace the bundle ConfigMaps land in. Must match the backend's
+# config.namespace (where its Role already grants ConfigMap list/watch and
+# where the ContentStore watches). NOT the release namespace.
+namespace: "playground"

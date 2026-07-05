@@ -252,6 +252,15 @@ spec:
                 fromFieldPath: metadata.name
                 toFieldPath: status.vclusterRelease
 
+          # CHALLENGES §5.1 — backend → vcluster network-path assumption.
+          # This NetworkPolicy's podSelector matches ONLY the shell pod
+          # (app: shell); the vcluster control-plane pod is unselected and
+          # therefore unrestricted, which is what lets the backend (seeder/
+          # grader, kubesandbox namespace) reach the tenant virtual API server
+          # on {ns}-{name}-vcluster:443 directly. Verified live 2026-07-04.
+          # If a default-deny policy is EVER added to session namespaces, an
+          # explicit allow (backend namespace → vcluster pod :8443) must ship
+          # in the same change, or challenge seeding and grading break.
           - name: shell-networkpolicy
             base:
               apiVersion: kubernetes.crossplane.io/v1alpha2
@@ -724,6 +733,116 @@ spec:
                   strategy: string
                   string:
                     fmt: "%s-%s-referencegrant"
+                toFieldPath: metadata.name
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                  strategy: string
+                  string:
+                    fmt: "%s-%s"
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+
+          # CHALLENGES §5.2 — per-session grant so the backend can read exactly
+          # one Secret in this namespace: the vcluster kubeconfig it needs to
+          # seed and grade challenges inside the tenant's virtual API server.
+          # Deliberately NOT a cluster-wide secrets grant (see the security
+          # rationale in clusterrole.yaml): the Role is restricted with
+          # resourceNames to the single vc-{ns}-{name}-vcluster Secret and is
+          # created/cascade-deleted with the session itself. Inert until the
+          # backend's challenge feature ships — composing it early is safe.
+          - name: kubeconfig-reader-role
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              metadata:
+                name: placeholder
+                annotations:
+                  argocd.argoproj.io/sync-wave: "18"
+              spec:
+                providerConfigRef:
+                  name: kubernetes-incluster
+                forProvider:
+                  manifest:
+                    apiVersion: rbac.authorization.k8s.io/v1
+                    kind: Role
+                    metadata:
+                      name: kubesandbox-backend-kubeconfig-reader
+                      namespace: placeholder
+                    rules:
+                      - apiGroups: [""]
+                        resources: ["secrets"]
+                        verbs: ["get"]
+                        # Exactly one Secret: the composed vcluster kubeconfig.
+                        resourceNames: ["placeholder"]
+            patches:
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                  strategy: string
+                  string:
+                    fmt: "%s-%s-kubeconfig-reader-role"
+                toFieldPath: metadata.name
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                  strategy: string
+                  string:
+                    fmt: "%s-%s"
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                  strategy: string
+                  string:
+                    fmt: "vc-%s-%s-vcluster"
+                toFieldPath: spec.forProvider.manifest.rules[0].resourceNames[0]
+
+          - name: kubeconfig-reader-rolebinding
+            base:
+              apiVersion: kubernetes.crossplane.io/v1alpha2
+              kind: Object
+              metadata:
+                name: placeholder
+                annotations:
+                  argocd.argoproj.io/sync-wave: "18"
+              spec:
+                providerConfigRef:
+                  name: kubernetes-incluster
+                forProvider:
+                  manifest:
+                    apiVersion: rbac.authorization.k8s.io/v1
+                    kind: RoleBinding
+                    metadata:
+                      name: kubesandbox-backend-kubeconfig-reader
+                      namespace: placeholder
+                    roleRef:
+                      apiGroup: rbac.authorization.k8s.io
+                      kind: Role
+                      name: kubesandbox-backend-kubeconfig-reader
+                    subjects:
+                      # The backend ServiceAccount (cross-namespace subject) —
+                      # same Helm sources as the backend Deployment, so an SA
+                      # rename can never drift out of step with this grant.
+                      - kind: ServiceAccount
+                        name: {{ include "kubesandbox-backend.serviceAccountName" . }}
+                        namespace: {{ .Release.Namespace }}
+            patches:
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+                    - fromFieldPath: metadata.labels[crossplane.io/claim-name]
+                  strategy: string
+                  string:
+                    fmt: "%s-%s-kubeconfig-reader-rolebinding"
                 toFieldPath: metadata.name
               - type: CombineFromComposite
                 combine:
