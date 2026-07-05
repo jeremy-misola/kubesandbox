@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,6 +23,12 @@ import (
 // A fixed manager + force:true means retries, crash resumes and replica races
 // all converge on the same field ownership instead of conflicting.
 const seedFieldManager = "kubesandbox-seeder"
+
+// deleteFanout bounds how many resource kinds DeleteSeeded scans/deletes
+// concurrently during a reset — enough to stop ~20 known kinds from
+// serializing behind each other's network round-trip, not so much that a
+// reset could hammer a tenant API server.
+const deleteFanout = 6
 
 var (
 	namespaceGVR = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
@@ -106,31 +113,12 @@ func (t *tenantOps) DeleteSeeded(ctx context.Context, claimName, challengeID str
 
 	// 2) Labeled leftovers elsewhere (objects seeded into pre-existing
 	// namespaces, or labeled cluster-scoped objects). Deletes racing the
-	// namespace cascade just 404 — ignored.
-	for _, kk := range content.KnownGVRs() {
-		if kk.GVR == namespaceGVR {
-			continue
-		}
-		ri := c.Dynamic.Resource(kk.GVR)
-		var list *unstructured.UnstructuredList
-		if kk.Namespaced {
-			list, err = ri.Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{LabelSelector: sel})
-		} else {
-			list, err = ri.List(ctx, metav1.ListOptions{LabelSelector: sel})
-		}
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue // API group absent in this tenant — fine
-			}
-			return fmt.Errorf("list %s: %w", kk.GVR.Resource, err)
-		}
-		for i := range list.Items {
-			o := &list.Items[i]
-			di := resourceFor(c.Dynamic, kk.GVR, kk.Namespaced, o.GetNamespace())
-			if err := di.Delete(ctx, o.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
-				return fmt.Errorf("delete %s %s/%s: %w", o.GetKind(), o.GetNamespace(), o.GetName(), err)
-			}
-		}
+	// namespace cascade just 404 — ignored. Each kind is an independent
+	// List+Delete round-trip to the tenant API, so they run concurrently
+	// (bounded) instead of one at a time — ~20 known kinds run serially was
+	// the slowest part of a reset for no reason.
+	if err := t.deleteLabeledLeftovers(ctx, c, sel); err != nil {
+		return err
 	}
 
 	// 3) Wait for the labeled namespaces to be fully gone.
@@ -148,6 +136,69 @@ func (t *tenantOps) DeleteSeeded(ctx context.Context, claimName, challengeID str
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+// deleteLabeledLeftovers deletes every labeled object across the known
+// resource kinds other than Namespace (handled by the caller). Kinds are
+// independent of each other, so they're scanned/deleted with a small bounded
+// worker pool rather than one at a time; the first real error (after every
+// worker has finished) is returned. A context cancellation/timeout still
+// applies per-request via ctx, same as the sequential version.
+func (t *tenantOps) deleteLabeledLeftovers(ctx context.Context, c *k8s.TenantClient, sel string) error {
+	kinds := content.KnownGVRs()
+	sem := make(chan struct{}, deleteFanout)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	for _, kk := range kinds {
+		if kk.GVR == namespaceGVR {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := deleteLabeledKind(ctx, c, kk, sel); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return firstErr
+}
+
+// deleteLabeledKind lists and deletes every object of one kind carrying sel.
+// An absent API group (IsNotFound on the list) is fine — not every tenant
+// vcluster has every known kind installed.
+func deleteLabeledKind(ctx context.Context, c *k8s.TenantClient, kk content.KnownGVR, sel string) error {
+	ri := c.Dynamic.Resource(kk.GVR)
+	var list *unstructured.UnstructuredList
+	var err error
+	if kk.Namespaced {
+		list, err = ri.Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	} else {
+		list, err = ri.List(ctx, metav1.ListOptions{LabelSelector: sel})
+	}
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil // API group absent in this tenant — fine
+		}
+		return fmt.Errorf("list %s: %w", kk.GVR.Resource, err)
+	}
+	for i := range list.Items {
+		o := &list.Items[i]
+		di := resourceFor(c.Dynamic, kk.GVR, kk.Namespaced, o.GetNamespace())
+		if err := di.Delete(ctx, o.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+			return fmt.Errorf("delete %s %s/%s: %w", o.GetKind(), o.GetNamespace(), o.GetName(), err)
+		}
+	}
+	return nil
 }
 
 // GetObject implements TenantOps (grading read).

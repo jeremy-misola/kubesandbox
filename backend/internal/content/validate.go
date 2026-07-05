@@ -73,7 +73,6 @@ func (b *Bundle) Lint() []string {
 	if len(b.Seed) == 0 {
 		add("seed: at least one manifest is required")
 	}
-	size := 0
 	for _, s := range b.Seed {
 		where := fmt.Sprintf("seed %s doc %d", s.File, s.Doc)
 		obj := s.Object
@@ -98,7 +97,6 @@ func (b *Bundle) Lint() []string {
 		} else if obj.GetKind() != "Namespace" {
 			add("%s: cluster-scoped kind %s is not allowed in seed manifests (only Namespace)", where, obj.GetKind())
 		}
-		size += approxSize(obj.Object)
 	}
 
 	return errs
@@ -217,28 +215,4 @@ func lintCheck(c Check) []string {
 		}
 	}
 	return errs
-}
-
-// approxSize estimates the in-memory footprint of a parsed object for the
-// size guard (exact wire size is checked against the raw ConfigMap payload by
-// the callers that have it).
-func approxSize(v interface{}) int {
-	switch t := v.(type) {
-	case map[string]interface{}:
-		n := 0
-		for k, val := range t {
-			n += len(k) + approxSize(val)
-		}
-		return n
-	case []interface{}:
-		n := 0
-		for _, val := range t {
-			n += approxSize(val)
-		}
-		return n
-	case string:
-		return len(t)
-	default:
-		return 8
-	}
 }
