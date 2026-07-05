@@ -20,4 +20,8 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   session: (id: string) => ["session", id] as const,
   queue: ["queue"] as const,
+  challenges: ["challenges"] as const,
+  // hints in the key so a reveal refetches exactly once and back-navigation
+  // stays cached.
+  challenge: (id: string, hints: number) => ["challenge", id, hints] as const,
 };

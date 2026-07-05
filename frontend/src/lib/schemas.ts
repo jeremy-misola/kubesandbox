@@ -17,6 +17,79 @@ export const resourcesSchema = z.object({
   memory: z.string(),
 });
 
+// ---- guided challenges (backend challenges design) --------------------------
+//
+// Transcriptions of the live Go structs (content.Meta, handlers/challenges.go's
+// gin.H detail response, models.ChallengeRef/GradeResult), not aspirations —
+// `omitempty` on the Go side becomes `.optional()`.
+
+export const challengeMetaSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  category: z.string(), //   rbac | networkpolicy | workloads | config |
+  difficulty: z.string(), // scheduling | storage-lite | troubleshooting
+  // The list path (models Meta) uses omitempty, but the detail handler builds a
+  // gin.H WITHOUT omitempty — so tags can arrive as null and estMinutes as 0.
+  // nullish→default keeps one schema valid against both encoders.
+  estMinutes: z
+    .number()
+    .nullish()
+    .transform((n) => n ?? 0),
+  tags: z
+    .array(z.string())
+    .nullish()
+    .transform((t) => t ?? []),
+});
+export type ChallengeMeta = z.infer<typeof challengeMetaSchema>;
+
+export const challengeListSchema = z.object({
+  // defensive nullable→[] like sessionListSchema
+  challenges: z
+    .array(challengeMetaSchema)
+    .nullable()
+    .transform((c) => c ?? []),
+});
+
+export const challengeStepSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+});
+export type ChallengeStep = z.infer<typeof challengeStepSchema>;
+
+export const challengeDetailSchema = challengeMetaSchema.extend({
+  steps: z.array(challengeStepSchema),
+  hintsTotal: z.number(),
+  hints: z.array(z.string()).optional(), // present only when ?hints=n > 0
+});
+export type ChallengeDetail = z.infer<typeof challengeDetailSchema>;
+
+// String on purpose (not z.enum): the gate compares === "seeded", so an unknown
+// future seed state degrades to "not ready yet" (fails closed) instead of a Zod
+// parse failure killing the whole session payload.
+export const challengeRefSchema = z.object({
+  id: z.string(),
+  title: z.string().optional(), // Go omitempty
+  seedState: z.string(), //         pending | seeding | seeded | failed
+});
+export type ChallengeRef = z.infer<typeof challengeRefSchema>;
+
+export const gradeStepSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  pass: z.boolean(),
+  message: z.string().optional(),
+});
+export type GradeStep = z.infer<typeof gradeStepSchema>;
+
+export const gradeResultSchema = z.object({
+  challengeId: z.string(),
+  pass: z.boolean(),
+  steps: z.array(gradeStepSchema),
+  gradedAt: z.string(),
+});
+export type GradeResult = z.infer<typeof gradeResultSchema>;
+
 export const sessionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -43,6 +116,10 @@ export const sessionListSchema = z.object({
 
 export const createSessionRequestSchema = z.object({
   ttlMinutes: z.number().int().min(TTL.min).max(TTL.max).optional(),
+  // Selects a guided challenge to seed after assignment. `.optional()` (not
+  // nullable): omitted when absent, so a plain create sends the identical wire
+  // body as before challenges existed.
+  challengeId: z.string().optional(),
 });
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 

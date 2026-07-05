@@ -2,12 +2,18 @@ import { config } from "@/config";
 import { getAccessToken } from "@/lib/auth";
 import {
   apiErrorSchema,
+  challengeDetailSchema,
+  challengeListSchema,
   createSessionRequestSchema,
+  gradeResultSchema,
   queueStatusSchema,
   sessionListSchema,
   sessionSchema,
+  type ChallengeDetail,
+  type ChallengeMeta,
   type CreateSessionRequest,
   type CreateSessionResult,
+  type GradeResult,
   type QueueStatus,
   type Session,
 } from "@/lib/schemas";
@@ -102,6 +108,49 @@ export const api = {
 
   async deleteSession(id: string): Promise<void> {
     await request(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+
+  // ---- guided challenges ----------------------------------------------------
+
+  /** GET /challenges — catalog metadata, served from the backend's memory. */
+  async listChallenges(): Promise<ChallengeMeta[]> {
+    const res = await request("/challenges");
+    return challengeListSchema.parse(await res.json()).challenges;
+  },
+
+  /**
+   * GET /challenges/:id — full detail. `hints` reveals the first n hint texts
+   * (?hints=n); the param is omitted when 0 so the cache key and the wire stay
+   * minimal.
+   */
+  async getChallenge(id: string, hints = 0): Promise<ChallengeDetail> {
+    const q = hints > 0 ? `?hints=${hints}` : "";
+    const res = await request(`/challenges/${encodeURIComponent(id)}${q}`);
+    return challengeDetailSchema.parse(await res.json());
+  },
+
+  /**
+   * POST /sessions/:id/challenge/grade — evaluate the bundle's checks against
+   * live tenant state. Throws ApiError on 409 (seed_in_progress), 429
+   * (rate_limited), 404 (no_challenge | not_found) — handled in GradePanel.
+   */
+  async gradeChallenge(sessionId: string): Promise<GradeResult> {
+    const res = await request(
+      `/sessions/${encodeURIComponent(sessionId)}/challenge/grade`,
+      { method: "POST" },
+    );
+    return gradeResultSchema.parse(await res.json());
+  },
+
+  /**
+   * POST /sessions/:id/challenge/reset — 202 {status,message}; the body is
+   * discarded. The session SSE stream is the progress channel: seedState rides
+   * pending → seeding → seeded back through the seeding gate.
+   */
+  async resetChallenge(sessionId: string): Promise<void> {
+    await request(`/sessions/${encodeURIComponent(sessionId)}/challenge/reset`, {
+      method: "POST",
+    });
   },
 };
 
