@@ -8,6 +8,147 @@ today. Newest first.
 
 ---
 
+## rev 32 — 2026-07-05 — Repo hygiene: drop accidentally committed OS/editor cruft
+
+Two stray files removed from tracking, no functional change: `.DS_Store`
+(macOS Finder metadata — `.gitignore` already blocked *new* copies, but this
+one had been committed before that rule existed) and
+`backend/internal/kubernetes/queue_redis.go.8757022648477156675`, a `gofmt`
+atomic-write temp file left behind by an interrupted format pass (identical to
+`queue_redis.go` but for one whitespace-alignment diff, and never referenced
+by the build).
+
+Files: `.DS_Store` (removed),
+`backend/internal/kubernetes/queue_redis.go.8757022648477156675` (removed).
+
+---
+
+## rev 31 — 2026-07-05 — Redis-backed queue for horizontal scaling
+
+Implements `docs/redis-queue-horizontal-scaling.md`: the backend can now run
+N replicas instead of being pinned to 1. Three pieces of process-local state
+were the blocker — queue ordering, SSE fan-out, and the pool reconcile loop —
+and all three move behind shared state gated by a new `Queue` interface, with
+the in-memory `AssignQueue` kept as the no-Redis, single-replica fallback
+(`REDIS_ADDR` unset).
+
+**`internal/redisclient`.** A thin wrapper over `go-redis/v9`: key-prefix
+namespacing (`ksbx:` default, so a shared Redis instance stays legible),
+default dial timeout, and a `Healthy` ping for readiness.
+
+**`RedisQueue` (`kubernetes/queue_redis.go`).** Ordering lives in a ZSET
+(`queue:z`, member = owner, score = a monotonic `INCR` counter rather than
+wall-clock time, so clock skew across replicas can't reorder FIFO); payload
+(the request + `enqueuedAt`) lives separately in `queue:req:{owner}` so
+`Position`/`Head` never deserialize requests they don't need. `Enqueue` and
+`Resolve` are Lua scripts so dedup-and-append and remove-and-publish are each
+atomic — in particular `Resolve`'s `ZREM` returning 0 means someone else
+resolved first and the call aborts, guaranteeing at most one terminal event
+per queue entry. SSE events relay across pods over a single `queue:ch`
+pub/sub channel: each pod fans out to its local subscribers and separately
+runs a 30s resync tick that heals two things pub/sub can't guarantee —
+missed messages (position is re-derived from the ZSET, not replayed) and a
+vanished entry (e.g. a Redis flush) turning into an explicit "please retry"
+terminal instead of a silently frozen stream. A leader-only `Janitor` removes
+payload/order divergence (leaked half-writes) and expires entries older than
+`QUEUE_MAX_WAIT_MINUTES` (default 60) with a terminal error — replacing the
+implicit cap that process restarts used to provide now that queue entries
+survive deploys.
+
+**Leader election (`kubernetes/leader.go`).** Exactly one replica runs
+`PoolManager.Run` at a time, via a Kubernetes `coordination.k8s.io` Lease
+(`k8s.io/client-go/tools/leaderelection`, 15s lease / 10s renew / 2s retry —
+client-go defaults). Standbys still serve all HTTP routes and the pub/sub
+relay; only the leader drains the queue and reconciles the pool. Failover
+correctness: if the leader dies between `Assign` and `Resolve`, the standby
+that takes over now looks up the owner's session on `ErrAlreadyExists` and
+resolves it as `assigned` instead of firing a spurious "you already have a
+sandbox" error — a genuine UX fix, not just a scaling one.
+
+**Everything else adapts to the new `Queue` interface** (`ctx` + `error` on
+every method, since Redis calls can fail over the network): `AssignQueue`
+gains the same signatures (always returns nil errors), `PoolManager` and the
+session handlers take the interface, and a Redis error degrades gracefully
+rather than wedging — admission skips for that reconcile pass only (steps
+2-5 keep healing the pool), a `Position` lookup failure during marker GC is
+treated as "possibly queued" (never orphan a real queued user because Redis
+blinked), and request-path enqueue failures surface as `503
+queue_unavailable` rather than a silent drop.
+
+**Config + Helm.** New env vars (`REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB`,
+`REDIS_KEY_PREFIX`, `REDIS_DIAL_TIMEOUT_SECONDS`, `QUEUE_MAX_WAIT_MINUTES`,
+`LEADER_ELECTION`, `POD_NAME` via downward API) wired through
+`internal/config`. The chart gains an in-chart single-instance Redis
+StatefulSet (`redis.enabled`, AOF `everysec` persistence — a SPOF by design,
+since the queue is recoverable and clients just re-POST; point `redis.addr`
+at a managed/Sentinel instance instead for HA), Lease RBAC for leader
+election, and `replicaCount` bumped to 2 with `redis.enabled: true`.
+
+**Tests.** A conformance suite (`queue_conformance_test.go`) runs the same
+scenarios — dedup, 1-based positions, FIFO drain, resolve-of-absent-owner as
+no-op — against both `AssignQueue` and a `miniredis`-backed `RedisQueue`, so
+the two implementations can't drift. `queue_redis_test.go` covers
+Redis-specific behavior (cross-instance pub/sub relay, janitor cleanup,
+concurrent enqueue). `pool_concurrency_test.go` runs two `PoolManager`s
+against one shared `RedisQueue` and deliberately bypasses leader election to
+prove the belt-and-braces correctness layer: every admitted owner gets
+exactly one claim and exactly one terminal event, no spurious errors, FIFO
+prefix respected.
+
+Files: `backend/internal/redisclient/client.go`,
+`backend/internal/kubernetes/{queue.go,queue_redis.go,queue_redis_test.go,
+queue_conformance_test.go,leader.go,pool.go,pool_concurrency_test.go,
+pool_test.go,client.go}`, `backend/internal/config/config.go`,
+`backend/cmd/server/main.go`, `backend/internal/telemetry/metrics.go`,
+`backend/{README.md,go.mod,go.sum}`,
+`kubesandbox-charts/kubesandbox/charts/kubesandbox-backend/{templates/redis.yaml,
+templates/clusterrole.yaml,templates/_helpers.tpl,templates/deployment.yaml,
+values.yaml}`, `backend/docs/redis-queue-horizontal-scaling.md`.
+
+---
+
+## rev 30 — 2026-07-05 — Frontend design restructure: dark-theme audit fixes, reveal animations, challenges polish
+
+A UI/UX audit (`frontend/references/ui-audit.md`) found the app had drifted
+from its own documented Luxury/Editorial system — the system specifies a
+light, warm, paper-like theme with gold as the *only* accent, but the shipped
+UI was a near-black dark theme with green/amber/gold all competing, mono type
+used everywhere instead of just the terminal, and low-contrast text
+throughout. Rather than reverting to the light theme, the app commits to a
+proper dark adaptation: contrast raised across the board (`--muted-foreground`
+and `--border` both pushed several points lighter, `/70`, `/60`, `/50`-opacity
+text utilities bumped to `/90`, `/85`, `/80` throughout the challenge and
+session components), layout widths widened (`ChallengeDetailPage` `max-w-3xl →
+max-w-4xl`, the main `Layout` container `max-w-5xl → max-w-[1280px]`), and
+spacing/line-height tightened up in `StepList`/`HintReveal` for clearer
+hierarchy.
+
+**Reveal animations.** A new `useReveal` hook (`animejs`) gives lists and card
+grids a subtle staggered fade/lift on mount — a no-op under
+`prefers-reduced-motion` — applied to the challenge catalog grid and detail
+panels; `index.css` gains the supporting keyframes.
+
+**Challenges catalog cleanup.** The sort-filter row on `ChallengesPage` and
+its now-unused sort constant were added and then removed in the same pass
+once the simpler default ordering proved sufficient — net effect is a
+slightly leaner catalog page than the one rev 29 shipped.
+
+**Grafana dashboard.** A panel for challenge seed duration (p50/p95,
+`kubesandbox_challenge_seed_duration_seconds_bucket`) was added to the
+backend-pool dashboard — this metric existed from rev 27 but had no panel
+until now.
+
+Files: `frontend/src/index.css`, `frontend/src/hooks/useReveal.ts`,
+`frontend/references/ui-audit.md`,
+`frontend/src/components/{ChallengeCard,Layout,CreateSessionDialog,QueueCard,
+SessionCard,StatusBadge,TerminalFrame,ProtectedRoute}.tsx`,
+`frontend/src/components/challenge/{HintReveal,InstructionsPanel,StepList}.tsx`,
+`frontend/src/pages/{ChallengeDetailPage,ChallengesPage,CallbackPage,
+DashboardPage,NotFoundPage}.tsx`,
+`kubesandbox-charts/kubesandbox/charts/kubesandbox-backend/dashboards/kubesandbox-backend-pool.json`.
+
+---
+
 ## rev 29 — 2026-07-05 — Guided challenges: frontend (catalog, detail, seeded workspace, grading, reset)
 
 Implements `docs/history/challenges-frontend-architecture.md` end to end — the
