@@ -272,12 +272,17 @@ func (s *Seeder) Process(ctx context.Context, name string) {
 		// CAS pending|seeding → seeding, attempts+1. The transition is the
 		// lightweight lease (§6.1): with multiple replicas, the loser sees
 		// the conflict and re-reads; even a double-apply is harmless (SSA).
+		//
+		// The reset flag deliberately SURVIVES this transition and is only
+		// cleared by the seeded CAS below: a crash mid-reset must resume with
+		// the delete-and-wait, or the re-apply races the terminating
+		// namespace ("unable to create new content in namespace ... because
+		// it is being terminated" — observed live 2026-07-05).
 		reset := k8s.SeedResetRequested(obj)
 		next := obj.DeepCopy()
 		annots := next.GetAnnotations()
 		annots[k8s.SeedStateAnnot] = k8s.SeedStateSeeding
 		annots[k8s.SeedAttemptsAnnot] = strconv.Itoa(k8s.SeedAttempts(obj) + 1)
-		delete(annots, k8s.SeedResetAnnot)
 		next.SetAnnotations(annots)
 		if _, err := s.ops.UpdateClaim(ctx, next); err != nil {
 			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
@@ -326,7 +331,9 @@ func (s *Seeder) seedOnce(ctx context.Context, name string, bundle *content.Bund
 }
 
 // casState re-reads the claim and CAS-updates fromState → toState, retrying
-// on conflict. Returns false when the claim vanished or left fromState.
+// on conflict. The reset flag is cleared with the terminal write (the reset
+// is only "done" once the re-seed landed). Returns false when the claim
+// vanished or left fromState.
 func (s *Seeder) casState(ctx context.Context, name, fromState, toState string) bool {
 	for {
 		obj, err := s.ops.GetClaim(ctx, name)
@@ -339,6 +346,7 @@ func (s *Seeder) casState(ctx context.Context, name, fromState, toState string) 
 		next := obj.DeepCopy()
 		annots := next.GetAnnotations()
 		annots[k8s.SeedStateAnnot] = toState
+		delete(annots, k8s.SeedResetAnnot)
 		next.SetAnnotations(annots)
 		if _, err := s.ops.UpdateClaim(ctx, next); err != nil {
 			if apierrors.IsConflict(err) {
@@ -401,6 +409,15 @@ func (s *Seeder) escalate(ctx context.Context, obj *unstructured.Unstructured, b
 	}
 	sess, err := s.ops.ReassignForRecycle(ctx, owner, req, k8s.ClaimExpiresAt(obj), 1)
 	if err != nil {
+		if errors.Is(err, k8s.ErrAlreadyExists) {
+			// The owner acquired a live claim during the recycle window
+			// (their own concurrent create won the freed slot). Their newer
+			// session wins; the marker now belongs to it — stand down
+			// WITHOUT releasing anything.
+			log.Printf("seeder: recycle re-assign for %s stood down: owner already holds a session", name)
+			s.metrics.RecordSeedAttempt(ctx, telemetry.SeedResultFailed)
+			return true
+		}
 		// No replacement member (pool empty) or claim failure: fail closed —
 		// release the marker so the user can retry, exactly as if the
 		// original create had failed.

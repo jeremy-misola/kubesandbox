@@ -43,13 +43,16 @@ spec:
               drop: ["ALL"]
           readinessProbe:
             exec:
+              # NB: no --request-timeout here — ANY command-line override
+              # makes kubectl skip its in-cluster-config fallback and dial
+              # localhost:8080 (verified live 2026-07-05). The probe's own
+              # timeoutSeconds bounds the call instead.
               command:
                 - kubectl
                 - get
                 - pods
                 - -n
                 - monitoring
-                - --request-timeout=5s
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 8

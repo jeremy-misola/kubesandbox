@@ -150,12 +150,35 @@ func (s *SessionService) ListSeedWork(ctx context.Context) ([]unstructured.Unstr
 }
 
 // ReassignForRecycle claims the next warm member for an owner whose marker is
-// ALREADY held (the recycle path — Assign would fail AlreadyExists). The new
-// claim inherits the original expiry so a recycle never extends the session's
-// clock, and records the incremented recycle counter.
+// normally still held (the recycle path — Assign would fail AlreadyExists).
+// The new claim inherits the original expiry so a recycle never extends the
+// session's clock, and records the incremented recycle counter.
+//
+// Two guards cover the pool manager's marker GC racing the recycle window
+// (observed live 2026-07-05: the GC reaped the owner's marker between the
+// recycle delete and this re-assign, because for that instant the owner held
+// no claim and the marker was past the grace window):
+//  1. if the owner acquired a live claim meanwhile (their own concurrent
+//     create won the freed slot), abort with ErrAlreadyExists — the user's
+//     newer session wins and the challenge re-assign stands down;
+//  2. if the marker vanished, recreate it so the one-per-user reservation
+//     holds again. (A truly simultaneous create between these two steps can
+//     still double-claim for one TTL — accepted residual risk on the
+//     single-replica deployment; closing it fully needs GC awareness of
+//     recycle intent inside pool.go, which stays untouched by design.)
 func (s *SessionService) ReassignForRecycle(ctx context.Context, ownerRef string, req models.CreateSessionRequest, expiresAt string, recycles int) (*models.Session, error) {
 	if ownerRef == "" {
 		return nil, fmt.Errorf("empty ownerRef")
+	}
+	existing, err := s.List(ctx, ownerRef)
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) > 0 {
+		return nil, ErrAlreadyExists
+	}
+	if err := s.createOwnerMarker(ctx, ownerRef); err != nil && !apierrors.IsAlreadyExists(err) {
+		return nil, fmt.Errorf("re-create owner marker: %w", err)
 	}
 	return s.claimReadyMember(ctx, ownerRef, req, expiresAt, recycles)
 }

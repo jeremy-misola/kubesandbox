@@ -35,6 +35,12 @@ func markerNameFor(owner string) string {
 	return "sbxowner-" + hex.EncodeToString(sum[:])[:16]
 }
 
+// ownerHashFor mirrors the kubernetes package's owner-label hash.
+func ownerHashFor(owner string) string {
+	sum := sha256.Sum256([]byte(owner))
+	return hex.EncodeToString(sum[:])[:32]
+}
+
 // newFakeSvc builds a real SessionService over a fake dynamic client that
 // ENFORCES optimistic concurrency on claim updates — the same
 // resourceVersion-checking reactor as pool_test.go. The stock fake ignores
@@ -442,6 +448,71 @@ func TestSeederResetDeletesThenReapplies(t *testing.T) {
 	if _, still := u.GetAnnotations()[k8s.SeedResetAnnot]; still {
 		t.Fatalf("reset flag must be cleared by the pending→seeding CAS")
 	}
+}
+
+func TestSeederCrashMidResetResumesWithDelete(t *testing.T) {
+	// Crash AFTER the pending→seeding CAS of a reset but BEFORE completion:
+	// the reset flag must survive into the resumed attempt so the delete-and-
+	// wait runs again — otherwise the re-apply races the terminating
+	// namespace (observed live 2026-07-05).
+	claim := challengeClaim("s-pool-a", testOwner, "ch-1", k8s.SeedStateSeeding, 1, 0)
+	annots := claim.GetAnnotations()
+	annots[k8s.SeedResetAnnot] = "true"
+	claim.SetAnnotations(annots)
+
+	svc, client := newFakeSvc(t, claim, ownerMarker(testOwner))
+	tenant := &fakeTenant{}
+	s := newTestSeeder(svc, testStore(t, "ch-1"), tenant, 3)
+
+	s.Process(context.Background(), "s-pool-a")
+
+	if len(tenant.deleteCalls) != 1 {
+		t.Fatalf("DeleteSeeded calls = %v — resumed reset must delete before re-applying", tenant.deleteCalls)
+	}
+	obj, _ := client.Tracker().Get(claimGVR, "playground", "s-pool-a")
+	u := obj.(*unstructured.Unstructured)
+	if u.GetAnnotations()[k8s.SeedStateAnnot] != k8s.SeedStateSeeded {
+		t.Fatalf("state = %q, want seeded", u.GetAnnotations()[k8s.SeedStateAnnot])
+	}
+	if _, still := u.GetAnnotations()[k8s.SeedResetAnnot]; still {
+		t.Fatalf("reset flag must be cleared only by the terminal seeded CAS")
+	}
+}
+
+func TestReassignForRecycleGuards(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+
+	t.Run("stands down when owner acquired a claim mid-window", func(t *testing.T) {
+		other := challengeClaim("s-pool-users-own", testOwner, "", k8s.SeedStateSeeded, 0, 0)
+		// Make it a plain owned session with the owner label List() filters on.
+		labels := other.GetLabels()
+		labels["kubesandbox.com/owner"] = ownerHashFor(testOwner)
+		other.SetLabels(labels)
+
+		svc, _ := newFakeSvc(t, other, warmMember("s-pool-spare", now))
+		_, err := svc.ReassignForRecycle(context.Background(), testOwner,
+			models.CreateSessionRequest{ChallengeID: "ch-1"}, "", 1)
+		if err != k8s.ErrAlreadyExists {
+			t.Fatalf("err = %v, want ErrAlreadyExists (user's newer session wins)", err)
+		}
+	})
+
+	t.Run("recreates a GC-stolen marker", func(t *testing.T) {
+		// No marker object at all (the pool manager's orphan GC reaped it in
+		// the recycle window, observed live 2026-07-05).
+		svc, client := newFakeSvc(t, warmMember("s-pool-spare", now))
+		sess, err := svc.ReassignForRecycle(context.Background(), testOwner,
+			models.CreateSessionRequest{ChallengeID: "ch-1"}, "", 1)
+		if err != nil {
+			t.Fatalf("ReassignForRecycle: %v", err)
+		}
+		if sess.Name != "s-pool-spare" {
+			t.Fatalf("claimed %q", sess.Name)
+		}
+		if _, err := client.Tracker().Get(cmGVR, "playground", markerNameFor(testOwner)); err != nil {
+			t.Fatalf("marker must be recreated so one-per-user holds again: %v", err)
+		}
+	})
 }
 
 func TestSeederIgnoresTerminalAndNonChallengeClaims(t *testing.T) {
