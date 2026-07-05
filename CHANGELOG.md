@@ -8,6 +8,97 @@ today. Newest first.
 
 ---
 
+## rev 29 — 2026-07-05 — Guided challenges: frontend (catalog, detail, seeded workspace, grading, reset)
+
+Implements `docs/history/challenges-frontend-architecture.md` end to end — the
+SPA counterpart to rev 27's backend. Challenges land as **three additive
+surfaces** built entirely from the vocabulary the frontend already has (Zod at
+the boundary, the typed `api` client, TanStack Query hooks, SSE-first with
+polling fallback, and the `Card`/`TerminalChrome`/`StatusBadge` family), with a
+single new structural pattern — a **seeding gate** that mirrors the existing
+`workspaceReady` gate. A session with no challenge renders exactly as before.
+Shipped in the design's six-item order; each item typechecks and builds on its
+own.
+
+**Schemas + client (§4).** `lib/schemas.ts` gains `challengeMeta`/`list`/
+`step`/`detail`/`ref` and `gradeStep`/`gradeResult`, transcribed from the live
+Go structs (`content.Meta`, the detail handler's `gin.H`, `models.ChallengeRef`/
+`GradeResult`). `tags`/`estMinutes` use `nullish→default` so one schema is valid
+against both the `omitempty` list encoder and the detail handler's no-`omitempty`
+`gin.H` (tags can arrive `null`, estMinutes `0`). `seedState` is `z.string()`,
+not `z.enum` — the gate compares `=== "seeded"`, so an unknown future seed state
+degrades to "not ready yet" (fails closed) rather than killing the session
+payload's parse. `lib/api.ts` adds `listChallenges`/`getChallenge(id,hints)`/
+`gradeChallenge`/`resetChallenge` on the existing `request()` plumbing;
+`queryClient.ts` adds `challenges` + `challenge(id,hints)` keys.
+
+**Session-shape awareness.** `sessionSchema.challenge` (optional) is the sole
+discriminator; `isChallengeSeeded` is the one derived helper. `StatusBadge.tone()`
+gains a challenge branch **before** the `workspaceReady` early return, so a
+seeding session (a warm member reports `workspaceReady:true` from the start)
+shows *Seeding*/*Seed failed* instead of a contradictory *Ready*; `SessionCard`
+shows a presence-guarded challenge chip. `TerminalPage` widens the
+`useSessionEvents` enablement to keep the existing stream live through seeding
+and re-seeding — no new stream, polling fallback unchanged.
+
+**Seeding gate + workspace.** `TerminalPage`'s body becomes a three-way branch:
+no challenge → the plain layout **verbatim** (a code move, not an edit); challenge
+present but not seeded → the workspace shell with the gate down; seeded → the
+live workspace. `ChallengeWorkspace` is the asymmetric two-column layout
+(instructions ~4 cols / terminal ~8 cols) reusing `TerminalFrame` unchanged;
+`SeedingNotice` is the gate's down-state (dot-breathe + the backend's synthetic
+message, terminal iframe **not** mounted while gated); `InstructionsPanel` +
+`StepList` + `HintReveal` render description, the id-keyed step checklist, and
+progressive hints.
+
+**Grading (§9).** `GradePanel` self-disables for a ~2 s cooldown after each
+submit (matching the backend min interval), so `429` is unreachable from a single
+tab; a `429` that still lands renders a quiet inline note, never a toast or red.
+`409 seed_in_progress` invalidates the session query and lets the re-engaged
+seeding gate be the UI. `useGradeChallenge` keeps the result in **retained
+mutation state** (grade results are ephemeral by backend design — no cache
+writes); step ids are shared with the detail steps, so the verdict merges into
+the one `StepList` (untested/pass/fail). A passing verdict earns the flow's one
+gold moment.
+
+**Reset (§10).** `useResetChallenge` optimistically writes
+`challenge.seedState:"pending"` into the session cache — which alone drops the
+gate and re-arms the widened `useSessionEvents`, so the existing session SSE
+stream carries `pending → seeding → seeded` with **no new poll loop**. A confirm
+dialog (`ConfirmResetDialog`, copy reflecting the backend caveat that unlabeled
+user-created objects survive) guards it; the retained grade result is cleared
+when the gate cycles.
+
+**Catalog + detail (§5).** `/challenges` (`ChallengesPage` + `ChallengeCard`) is
+client-side filter/sort over the in-memory catalog with state in **URL search
+params** (shareable), plus skeleton/empty/error states — and a distinct "no
+match" vs "catalog empty" empty state. `/challenges/:id` (`ChallengeDetailPage`)
+renders detail + progressive hints (revealed count in **sessionStorage** keyed by
+challenge id, shared with the in-session panel) and the start flow: `201` →
+`/terminal/:id`, `202` → `/dashboard` (the existing `QueueCard` takes over,
+zero new queue code), and `409 session_exists` → the explicit *Open current
+sandbox* / *End it & start* choice (reusing `ConfirmDeleteDialog`), the latter
+**waiting for the delete to settle** before creating rather than hammering
+create into 409s. `Layout` gains a Challenges nav link and `App` two guarded
+routes.
+
+**Additivity guarantees (§11), verified.** `createSession` without a
+`challengeId` sends the identical wire body (`{"ttlMinutes":60}` — `.optional()`,
+omitted not `null`); the `TerminalPage` plain path is a byte-identical code move
+(the `provisioning ? Card : TerminalFrame` JSX is untouched); no new
+dependencies; no new `VITE_*` keys. Open questions (§14) were left at their
+stated v1 behavior. Live browser verification (§13 item 7) is the remaining
+step; it needs the running stack.
+
+Files: `frontend/src/lib/{schemas,api,queryClient}.ts`,
+`frontend/src/hooks/useChallenges.ts`,
+`frontend/src/pages/{ChallengesPage,ChallengeDetailPage,TerminalPage}.tsx`,
+`frontend/src/components/{ChallengeCard,StatusBadge,SessionCard,Layout}.tsx`,
+`frontend/src/components/challenge/{ChallengeWorkspace,InstructionsPanel,StepList,HintReveal,GradePanel,SeedingNotice,ConfirmResetDialog}.tsx`,
+`frontend/src/App.tsx`.
+
+---
+
 ## rev 28 — 2026-07-04 — Grafana dashboard: fix panel duplication from per-replica `service.instance.id` labels
 
 The Grafana dashboard imported in rev 23/24 had panels duplicating every
