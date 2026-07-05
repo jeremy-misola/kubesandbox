@@ -9,11 +9,6 @@ import { cn } from "@/lib/utils";
 import type { ChallengeMeta } from "@/lib/schemas";
 
 const DIFFICULTY_RANK: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
-const SORTS = [
-  { key: "difficulty", label: "Difficulty" },
-  { key: "estMinutes", label: "Time" },
-  { key: "title", label: "Title" },
-] as const;
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
