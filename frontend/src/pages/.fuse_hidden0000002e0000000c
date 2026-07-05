@@ -40,11 +40,11 @@ function FilterRow({
         type="button"
         onClick={() => onSelect(value)}
         className={cn(
-          "eyebrow border-b py-1 font-medium transition-colors duration-500 ease-luxury",
+          "overline border-b py-1 transition-colors duration-500 ease-luxury",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
           isActive
             ? "border-accent text-foreground"
-            : "border-transparent text-foreground/75 hover:text-accent",
+            : "border-transparent text-muted-foreground hover:text-accent",
         )}
       >
         {text}
@@ -54,11 +54,7 @@ function FilterRow({
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
-      {/* Field name: serif italic + a hairline divider set it apart from the
-          mono, uppercase values so a filter reads distinctly from its options. */}
-      <span className="mr-1 shrink-0 border-r border-border/50 pr-4 font-display text-sm italic text-muted-foreground">
-        {label}
-      </span>
+      <span className="overline text-muted-foreground">{label}</span>
       {render("", "All")}
       {options.map((o) => render(o, o))}
     </div>
@@ -138,7 +134,7 @@ export function ChallengesPage() {
   return (
     <div>
       <div className="reveal-up mb-10">
-        <p className="eyebrow text-accent">~/challenges</p>
+        <p className="overline text-accent">~/challenges</p>
         <h1 className="mt-2 font-display text-4xl font-normal tracking-tight md:text-5xl">
           Guided <span className="italic text-accent">Challenges</span>
         </h1>

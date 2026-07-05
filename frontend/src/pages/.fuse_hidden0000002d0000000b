@@ -26,11 +26,11 @@ export function CallbackPage() {
     <div className="flex min-h-[60vh] items-center justify-center text-center">
       {error ? (
         <div className="max-w-md border border-danger/30 bg-danger/5 p-8">
-          <p className="eyebrow text-danger">auth error</p>
+          <p className="overline text-danger">auth error</p>
           <p className="mt-3 text-sm text-foreground">Sign-in failed: {error}</p>
           <a
             href="/"
-            className="eyebrow mt-5 inline-block text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            className="overline mt-5 inline-block text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
             ← back to sign in
           </a>

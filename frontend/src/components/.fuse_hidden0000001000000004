@@ -100,7 +100,7 @@ export function StatusBadge({ session }: { session: Session }) {
       role="status"
       className={cn(
         "inline-flex items-center gap-1.5 border px-3 py-1",
-        "eyebrow-xs",
+        "overline-xs",
         className,
       )}
     >

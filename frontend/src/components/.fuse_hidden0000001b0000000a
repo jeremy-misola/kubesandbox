@@ -33,7 +33,7 @@ export function QueueCard({ queue }: { queue: QueueStatus }) {
   return (
     <Card className="overflow-hidden p-0">
       <TerminalChrome title="kubesandbox — waiting">
-        <span className="eyebrow-xs ml-auto inline-flex items-center gap-1.5 border border-warning/30 bg-warning/10 px-3 py-1 text-warning">
+        <span className="overline-xs ml-auto inline-flex items-center gap-1.5 border border-warning/30 bg-warning/10 px-3 py-1 text-warning">
           <i aria-hidden className="dot-breathe h-1.5 w-1.5 rounded-full bg-warning text-warning" />
           In line
         </span>

@@ -123,27 +123,27 @@
 @layer components {
   /* ————— Editorial signatures ————— */
 
-  /* The house label / overline. One treatment for every small uppercase mono
-     label site-wide (categories, filters, section titles, metadata, badges).
-     Medium weight at 11px reads crisp instead of slim; tracking is tightened
-     from the old 0.25–0.3em so wide-set caps stay legible. Color is left to the
-     caller (text-muted-foreground, text-accent, …). */
-  .overline {
+  /* The house label. One treatment for every small uppercase mono label
+     site-wide (categories, section titles, metadata, badges). Named `.eyebrow`
+     deliberately — NOT `.overline`, which collides with Tailwind's
+     text-decoration utility and draws a literal rule above the text. Original
+     editorial weight/tracking; color is left to the caller. */
+  .eyebrow {
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-    font-weight: 500;
+    font-weight: 400;
     font-size: 0.6875rem; /* 11px */
     line-height: 1.2;
     text-transform: uppercase;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.22em;
   }
   /* A slightly smaller sibling for dense metadata rows that must stay compact. */
-  .overline-xs {
+  .eyebrow-xs {
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-    font-weight: 500;
+    font-weight: 400;
     font-size: 0.625rem; /* 10px */
     line-height: 1.2;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.2em;
   }
 
   /* One-shot entrance: a gentle fade + lift on mount. Used for page headers and

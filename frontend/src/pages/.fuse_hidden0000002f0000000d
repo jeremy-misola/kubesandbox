@@ -37,7 +37,7 @@ function difficultyTone(difficulty: string): string {
 const backLink = (
   <Link
     to="/challenges"
-    className="eyebrow text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+    className="overline text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
   >
     ← challenges
   </Link>
@@ -157,12 +157,12 @@ export function ChallengeDetailPage() {
       <div className="pb-6">{backLink}</div>
 
       <div ref={introRef}>
-        <p className="eyebrow text-muted-foreground">{data.category}</p>
+        <p className="overline text-muted-foreground">{data.category}</p>
         <h1 className="mt-3 font-display text-4xl font-normal leading-tight tracking-tight">
           {data.title}
         </h1>
 
-        <div className="eyebrow-xs mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+        <div className="overline-xs mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
           <span className={cn("border px-2 py-0.5", difficultyTone(data.difficulty))}>
             {data.difficulty}
           </span>
@@ -180,7 +180,7 @@ export function ChallengeDetailPage() {
       </div>
 
       <section className="mt-10">
-        <p className="eyebrow mb-3 text-muted-foreground">Steps</p>
+        <p className="overline mb-3 text-muted-foreground">Steps</p>
         <StepList steps={data.steps} />
       </section>
 

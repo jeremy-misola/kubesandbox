@@ -71,7 +71,7 @@ export function GradePanel({
     <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="eyebrow text-muted-foreground">Grading</p>
+          <p className="overline text-muted-foreground">Grading</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Check your work against the challenge's steps — grade as often as you
             like.
@@ -131,7 +131,7 @@ export function GradePanel({
               : `${result.steps.filter((s) => !s.pass).length} of ${result.steps.length} step${result.steps.length === 1 ? "" : "s"} still to fix.`}
           </p>
           {gradedAtLabel(result.gradedAt) && (
-            <span className="eyebrow-xs ml-auto text-muted-foreground">
+            <span className="overline-xs ml-auto text-muted-foreground">
               graded {gradedAtLabel(result.gradedAt)}
             </span>
           )}

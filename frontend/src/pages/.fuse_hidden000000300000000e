@@ -41,7 +41,7 @@ export function TerminalPage() {
           <div className="flex items-center gap-3">
             <Link
               to="/dashboard"
-              className="eyebrow text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="overline text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
               ← dashboard
             </Link>
@@ -69,7 +69,7 @@ export function TerminalPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/dashboard"
-            className="eyebrow text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            className="overline text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
             ← dashboard
           </Link>
@@ -147,7 +147,7 @@ function NewTabHandoff({ id }: { id: string }) {
           <div className="mt-4">
             <Link
               to="/dashboard"
-              className="eyebrow text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="overline text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
               ← back to dashboard
             </Link>
