@@ -2,11 +2,13 @@ import { Link, useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, TerminalChrome } from "@/components/ui/card";
+import { ChallengeWorkspace } from "@/components/challenge/ChallengeWorkspace";
 import { StatusBadge } from "@/components/StatusBadge";
 import { TerminalFrame } from "@/components/TerminalFrame";
 import { useSession } from "@/hooks/useSessions";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
 import { isTerminalEmbeddable, terminalUrl } from "@/config";
+import { isChallengeSeeded } from "@/lib/schemas";
 import { timeLeft } from "@/lib/utils";
 
 /**
@@ -17,8 +19,13 @@ import { timeLeft } from "@/lib/utils";
 export function TerminalPage() {
   const { id = "" } = useParams();
   const { data: session, isLoading } = useSession(id);
-  // Live phase updates while provisioning; falls back to polling.
-  useSessionEvents(id, !!session && !session.workspaceReady);
+  // Live phase updates while there is something to watch: provisioning (as
+  // today), initial challenge seeding, and re-seeding after reset. Once ready
+  // AND seeded, the stream closes as it does today. Falls back to polling.
+  useSessionEvents(
+    id,
+    !!session && (!session.workspaceReady || !isChallengeSeeded(session)),
+  );
 
   // Cross-origin terminal: embedding can't work, hand off to a new tab.
   if (!isTerminalEmbeddable()) {
@@ -67,7 +74,9 @@ export function TerminalPage() {
             ← dashboard
           </Link>
           <h1 className="font-display text-xl font-normal tracking-tight">
-            {session ? "Kubernetes sandbox" : `s/${id}`}
+            {session
+              ? (session.challenge?.title ?? "Kubernetes sandbox")
+              : `s/${id}`}
           </h1>
         </div>
         <div className="flex items-center gap-3">
@@ -78,7 +87,13 @@ export function TerminalPage() {
         </div>
       </div>
 
-      {provisioning ? (
+      {session && session.challenge ? (
+        // session.challenge presence is the sole discriminator: the challenge
+        // workspace (instructions + gated terminal + grading) takes over. A
+        // challenge-less session falls through to the byte-identical plain
+        // layout below — a code move, not an edit.
+        <ChallengeWorkspace session={session} />
+      ) : provisioning ? (
         <Card className="overflow-hidden p-0">
           <TerminalChrome title={`s/${id}`} />
           <div className="flex items-start gap-3 p-5">
