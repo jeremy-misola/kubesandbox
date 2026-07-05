@@ -36,6 +36,14 @@ export function SessionCard({ session }: { session: Session }) {
           )}
         </div>
 
+        {/* Dashboard awareness only: this session is a guided challenge. */}
+        {session.challenge && (
+          <span className="inline-flex w-fit items-center gap-1.5 border border-accent/30 bg-accent/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-label text-accent">
+            <i aria-hidden className="h-1 w-1 rounded-full bg-accent" />
+            {session.challenge.title ?? "Challenge"}
+          </span>
+        )}
+
         <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border/70 bg-border/70 font-mono text-xs">
           {(
             [

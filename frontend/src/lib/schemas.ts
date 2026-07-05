@@ -107,8 +107,22 @@ export const sessionSchema = z.object({
   expiresAt: z.string().optional(),
   url: z.string().optional(),
   createdAt: z.string().optional(),
+  // Present only when the session was created for a guided challenge. Its
+  // presence is the sole discriminator for the challenge workspace; a
+  // challenge-less session parses to today's object unchanged.
+  challenge: challengeRefSchema.optional(),
 });
 export type Session = z.infer<typeof sessionSchema>;
+
+/**
+ * The one derived helper the seeding gate uses — mirrors the workspaceReady
+ * idiom. A session with no challenge is trivially "seeded" (nothing to seed);
+ * a challenge session is ready only when seedState === "seeded". Comparing
+ * against "seeded" (not the busy states) makes an unknown future seed state
+ * fail closed.
+ */
+export const isChallengeSeeded = (s: Session): boolean =>
+  !s.challenge || s.challenge.seedState === "seeded";
 
 export const sessionListSchema = z.object({
   sessions: z.array(sessionSchema).nullable().transform((s) => s ?? []),

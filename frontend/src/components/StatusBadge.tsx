@@ -17,6 +17,29 @@ function tone(session: Session): {
   dotClassName: string;
   busy: boolean;
 } {
+  // Challenge seeding is surfaced BEFORE the workspaceReady check: a warm member
+  // reports workspaceReady:true from the start, so without this branch a seeding
+  // session would show "Ready" while the workspace gate says otherwise — a
+  // direct contradiction in the header. Comparing against "seeded" (not the busy
+  // states) fails closed on unknown seed states.
+  if (session.challenge) {
+    if (session.challenge.seedState === "failed") {
+      return {
+        label: "Seed failed",
+        className: "border-danger/30 bg-danger/10 text-danger",
+        dotClassName: "bg-danger text-danger",
+        busy: false,
+      };
+    }
+    if (session.challenge.seedState !== "seeded") {
+      return {
+        label: "Seeding",
+        className: "border-warning/30 bg-warning/10 text-warning",
+        dotClassName: "bg-warning text-warning dot-breathe",
+        busy: true,
+      };
+    }
+  }
   if (session.workspaceReady) {
     return {
       label: "Ready",
