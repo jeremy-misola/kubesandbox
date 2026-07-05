@@ -61,7 +61,7 @@ export function StepList({
         const r = byId.get(s.id);
         const state: StepState = !r ? "neutral" : r.pass ? "pass" : "fail";
         return (
-          <li key={s.id} data-step-row className="flex gap-3 py-3">
+          <li key={s.id} data-step-row className="flex gap-3 py-3.5">
             <StepDot state={state} />
             <div className="min-w-0">
               <p
@@ -71,7 +71,7 @@ export function StepList({
                     ? "text-foreground/90"
                     : state === "fail"
                       ? "text-foreground"
-                      : "text-foreground/80",
+                      : "text-foreground/85",
                 )}
               >
                 {s.description}

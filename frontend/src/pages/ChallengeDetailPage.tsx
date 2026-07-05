@@ -149,7 +149,7 @@ export function ChallengeDetailPage() {
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-4xl">
       <div className="pb-6">{backLink}</div>
 
       <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
@@ -165,13 +165,13 @@ export function ChallengeDetailPage() {
         </span>
         {data.estMinutes > 0 && <span>· {data.estMinutes} min</span>}
         {data.tags.length > 0 && (
-          <span className="tracking-normal text-muted-foreground/70">
+          <span className="tracking-normal text-muted-foreground">
             · {data.tags.join(" · ")}
           </span>
         )}
       </div>
 
-      <p className="mt-6 text-base leading-relaxed text-foreground/85">
+      <p className="mt-6 text-base leading-relaxed text-foreground/90">
         {data.description}
       </p>
 

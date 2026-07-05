@@ -115,7 +115,7 @@ export function Layout({ children }: { children: ReactNode }) {
             ? "max-w-[1600px] py-6"
             : editorialLight
               ? "max-w-[1600px] py-12 md:py-20"
-              : "max-w-5xl py-12",
+              : "max-w-[1280px] py-12 md:py-16",
         )}
       >
         {children}

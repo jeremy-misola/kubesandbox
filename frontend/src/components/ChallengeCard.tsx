@@ -51,7 +51,7 @@ export function ChallengeCard({ meta }: { meta: ChallengeMeta }) {
           </span>
           {meta.estMinutes > 0 && <span>· {meta.estMinutes} min</span>}
           {meta.tags.length > 0 && (
-            <span className="tracking-normal text-muted-foreground/70">
+            <span className="tracking-normal text-muted-foreground">
               · {meta.tags.join(" · ")}
             </span>
           )}

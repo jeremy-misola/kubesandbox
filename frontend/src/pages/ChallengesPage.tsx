@@ -53,7 +53,7 @@ function FilterRow({
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
-      <span className="font-mono text-[10px] uppercase tracking-overline text-muted-foreground/60">
+      <span className="font-mono text-[10px] uppercase tracking-overline text-muted-foreground">
         {label}
       </span>
       {render("", "All")}
@@ -64,7 +64,7 @@ function FilterRow({
 
 function CatalogSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
         <Card key={i} className="flex h-full flex-col p-6">
           <div className="skeleton h-3 w-20" />
@@ -218,7 +218,7 @@ export function ChallengesPage() {
       )}
 
       {!isLoading && !isError && shown.length > 0 && (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((meta) => (
             <ChallengeCard key={meta.id} meta={meta} />
           ))}

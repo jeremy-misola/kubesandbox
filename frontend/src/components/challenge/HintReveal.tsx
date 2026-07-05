@@ -23,11 +23,11 @@ export function HintReveal({
     <div>
       <p className="mb-2 font-mono text-[10px] uppercase tracking-label text-muted-foreground">
         Hints
-        <span className="ml-2 text-muted-foreground/60">
+        <span className="ml-2 text-muted-foreground">
           {Math.min(revealed, hintsTotal)}/{hintsTotal}
         </span>
       </p>
-      <ol className="space-y-2">
+      <ol className="space-y-2.5">
         {Array.from({ length: hintsTotal }).map((_, i) => {
           const text = hints?.[i];
           const isRevealed = i < revealed && !!text;
@@ -37,7 +37,7 @@ export function HintReveal({
             return (
               <li
                 key={i}
-                className="border-l border-accent/40 py-0.5 pl-3 text-sm leading-relaxed text-foreground/85"
+                className="border-l border-accent/40 py-1 pl-3 text-sm leading-relaxed text-foreground/90"
               >
                 {text}
               </li>
@@ -67,7 +67,7 @@ export function HintReveal({
           return (
             <li
               key={i}
-              className="border-l border-border/50 py-0.5 pl-3 font-mono text-xs text-muted-foreground/50"
+              className="border-l border-border py-1 pl-3 font-mono text-xs text-muted-foreground/80"
             >
               Hint {i + 1} — hidden
             </li>

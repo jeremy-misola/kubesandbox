@@ -67,7 +67,7 @@ export function InstructionsPanel({
             {data.estMinutes > 0 ? ` · ${data.estMinutes} min` : ""}
           </span>
         </p>
-        <p className="mt-3 text-sm leading-relaxed text-foreground/85">
+        <p className="mt-3 text-sm leading-relaxed text-foreground/90">
           {data.description}
         </p>
       </div>
