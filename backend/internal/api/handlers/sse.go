@@ -93,7 +93,12 @@ func (h *SessionHandler) QueueEvents(c *gin.Context) {
 		return
 	}
 
-	ch, unsub, queued := h.queue.Subscribe(ident.Subject)
+	ch, unsub, queued, err := h.queue.Subscribe(c.Request.Context(), ident.Subject)
+	if err != nil {
+		respondError(c, http.StatusServiceUnavailable, "queue_unavailable",
+			"the waiting queue is temporarily unavailable; please retry shortly")
+		return
+	}
 	if !queued {
 		sessions, err := h.svc.List(c.Request.Context(), ident.Subject)
 		if err == nil && len(sessions) > 0 {

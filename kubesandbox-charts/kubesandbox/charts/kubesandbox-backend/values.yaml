@@ -2,7 +2,7 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: jurassicjey/kubesandbox-backend
@@ -101,7 +101,7 @@ livenessProbe:
 readinessProbe:
   httpGet:
     path: /health
-    port: http
+    port: httpi
   initialDelaySeconds: 5
   periodSeconds: 10
 
@@ -172,6 +172,58 @@ pool:
   maxWarmAgeHours: 24
   # Pool manager periodic reconcile (safety net behind the claim watch).
   resyncSeconds: 30
+
+# Redis-backed assign queue — required for replicaCount > 1
+# (backend/docs/redis-queue-horizontal-scaling.md). With neither redis.enabled
+# nor redis.addr set, the backend uses its in-memory queue (single-replica
+# only; the chart refuses to render replicaCount > 1 in that case).
+redis:
+  # Deploy an in-chart single-instance Redis (StatefulSet + Service, AOF
+  # everysec) and point the backend at it.
+  enabled: true
+  image: "redis:7.4-alpine"
+  # Point at an external/managed Redis instead (host:port). Ignored when
+  # enabled: true (the in-chart Service address wins).
+  addr: ""
+  # Logical database index.
+  db: 0
+  # Key namespace for all backend keys.
+  keyPrefix: "ksbx:"
+  # Connection-establishment timeout (REDIS_DIAL_TIMEOUT_SECONDS).
+  dialTimeoutSeconds: 5
+  # Optional AUTH: name of an existing Secret in the release namespace with
+  # key "redis-password". Empty = no AUTH (in-cluster access is already
+  # restricted to backend pods by NetworkPolicy).
+  existingSecret: ""
+  # AOF persistence. The queue is recoverable by design (clients re-POST), so
+  # losing it is degraded UX, not corruption — but persistence is cheap and
+  # avoids bouncing every queued user on a Redis restart.
+  persistence:
+    enabled: true
+    size: 1Gi
+    # Empty = cluster default StorageClass (k3s: local-path).
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Queue behavior (Redis-backed queue only).
+queue:
+  # Entries waiting longer than this are expired by the reconcile janitor with
+  # a terminal error event (entries survive deploys now; this replaces the
+  # implicit cap process restarts used to provide). 0 disables.
+  maxWaitMinutes: 60
+
+# Lease-based leader election for the pool reconcile loop: exactly one replica
+# reconciles; the rest serve HTTP and stand by. Safe (and default-on) at
+# 1 replica; REQUIRED for replicaCount > 1. The Lease lives in
+# config.namespace next to the claims it guards.
+leaderElection:
+  enabled: true
 
 # Guided challenges (docs/history/challenges-backend-architecture.md): content
 # comes from the kubesandbox-challenges chart (one ConfigMap per bundle in

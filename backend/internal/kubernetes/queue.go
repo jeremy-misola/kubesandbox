@@ -19,6 +19,30 @@ type QueueEvent struct {
 	Message  string          `json:"message,omitempty"`
 }
 
+// Queue is the warm-pool waiting line (docs/redis-queue-horizontal-scaling.md).
+//
+// Two implementations exist: AssignQueue (in-memory, single-replica only) and
+// RedisQueue (shared state, safe behind N replicas). Every method takes a ctx
+// and can return an error because the Redis implementation crosses the
+// network; the in-memory implementation always returns nil errors.
+//
+// Semantics common to both:
+//   - Enqueue dedups by owner and returns the 1-based position.
+//   - Head/Resolve drain FIFO. Resolving an owner that is not queued is a
+//     harmless no-op.
+//   - Subscribe delivers best-effort position updates and exactly one
+//     terminal "assigned"/"error" event, after which the channel is closed.
+//     A slow subscriber never blocks the queue.
+type Queue interface {
+	Enqueue(ctx context.Context, owner string, req models.CreateSessionRequest) (int, error)
+	Position(ctx context.Context, owner string) (int, bool, error)
+	Len(ctx context.Context) (int, error)
+	Head(ctx context.Context) (string, models.CreateSessionRequest, bool, error)
+	Resolve(ctx context.Context, owner string, sess *models.Session, errMsg string) error
+	Subscribe(ctx context.Context, owner string) (<-chan QueueEvent, func(), bool, error)
+	SetMetrics(m *telemetry.Metrics)
+}
+
 // waiter is one queued owner. Subscribers receive position updates and the
 // terminal assigned/error event; events are delivered best-effort (a slow
 // subscriber never blocks the queue — the session still exists and is
@@ -33,10 +57,11 @@ type waiter struct {
 
 // AssignQueue is an in-memory FIFO of owners waiting for a warm sandbox.
 //
-// Scope note: the queue is per-replica state (the backend runs a single
-// replica today). Losing it on restart is safe — the user re-POSTs and either
-// gets a member (pool refilled) or re-queues. The one-per-user invariant does
-// NOT live here; it lives in the per-owner marker created at assignment time.
+// Scope note: this implementation is per-replica state and is only valid when
+// the backend runs a single replica (REDIS_ADDR unset). Losing it on restart
+// is safe — the user re-POSTs and either gets a member (pool refilled) or
+// re-queues. The one-per-user invariant does NOT live here; it lives in the
+// per-owner marker created at assignment time. For N replicas, use RedisQueue.
 type AssignQueue struct {
 	mu    sync.Mutex
 	items []*waiter
@@ -45,25 +70,32 @@ type AssignQueue struct {
 	metrics *telemetry.Metrics
 }
 
+// compile-time interface check.
+var _ Queue = (*AssignQueue)(nil)
+
 // NewAssignQueue constructs an empty queue.
 func NewAssignQueue() *AssignQueue { return &AssignQueue{} }
 
 // SetMetrics injects the telemetry instrument set (nil is a valid no-op) and
-// wires the queue.depth gauge to Len.
+// wires the queue.depth gauge to the queue length.
 func (q *AssignQueue) SetMetrics(m *telemetry.Metrics) {
 	q.metrics = m
-	m.RegisterQueueDepth(func() int64 { return int64(q.Len()) })
+	m.RegisterQueueDepth(func() int64 {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return int64(len(q.items))
+	})
 }
 
 // Enqueue adds owner to the queue (deduplicated) and returns its 1-based
 // position.
-func (q *AssignQueue) Enqueue(owner string, req models.CreateSessionRequest) int {
+func (q *AssignQueue) Enqueue(_ context.Context, owner string, req models.CreateSessionRequest) (int, error) {
 	q.mu.Lock()
 	for i, w := range q.items {
 		if w.owner == owner {
 			pos := i + 1
 			q.mu.Unlock()
-			return pos // already queued — not a new enqueue, nothing to record
+			return pos, nil // already queued — not a new enqueue, nothing to record
 		}
 	}
 	q.items = append(q.items, &waiter{
@@ -78,42 +110,42 @@ func (q *AssignQueue) Enqueue(owner string, req models.CreateSessionRequest) int
 	// Record outside the lock: an instrument Add must never sit on the queue's
 	// hot path (cheap today, but the SDK is not ours to trust to never block).
 	q.metrics.RecordEnqueued(context.Background())
-	return pos
+	return pos, nil
 }
 
 // Position returns the 1-based position of owner, or false if not queued.
-func (q *AssignQueue) Position(owner string) (int, bool) {
+func (q *AssignQueue) Position(_ context.Context, owner string) (int, bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for i, w := range q.items {
 		if w.owner == owner {
-			return i + 1, true
+			return i + 1, true, nil
 		}
 	}
-	return 0, false
+	return 0, false, nil
 }
 
 // Len returns the queue length.
-func (q *AssignQueue) Len() int {
+func (q *AssignQueue) Len(_ context.Context) (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return len(q.items)
+	return len(q.items), nil
 }
 
 // Head returns the owner and request at the front of the queue.
-func (q *AssignQueue) Head() (string, models.CreateSessionRequest, bool) {
+func (q *AssignQueue) Head(_ context.Context) (string, models.CreateSessionRequest, bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.items) == 0 {
-		return "", models.CreateSessionRequest{}, false
+		return "", models.CreateSessionRequest{}, false, nil
 	}
-	return q.items[0].owner, q.items[0].req, true
+	return q.items[0].owner, q.items[0].req, true, nil
 }
 
 // Subscribe attaches an SSE listener to owner's queue entry. It returns the
 // event channel, an unsubscribe func, and whether the owner was queued. The
 // current position is delivered immediately.
-func (q *AssignQueue) Subscribe(owner string) (<-chan QueueEvent, func(), bool) {
+func (q *AssignQueue) Subscribe(_ context.Context, owner string) (<-chan QueueEvent, func(), bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for i, w := range q.items {
@@ -126,16 +158,16 @@ func (q *AssignQueue) Subscribe(owner string) (<-chan QueueEvent, func(), bool) 
 				q.mu.Lock()
 				delete(ww.subs, ch)
 				q.mu.Unlock()
-			}, true
+			}, true, nil
 		}
 	}
-	return nil, nil, false
+	return nil, nil, false, nil
 }
 
 // Resolve removes owner from the queue, delivering the terminal event to
 // subscribers: an "assigned" event when sess is non-nil, else an "error".
 // Remaining waiters receive updated positions.
-func (q *AssignQueue) Resolve(owner string, sess *models.Session, errMsg string) {
+func (q *AssignQueue) Resolve(_ context.Context, owner string, sess *models.Session, errMsg string) error {
 	q.mu.Lock()
 	found := false
 	outcome := telemetry.OutcomeAssigned
@@ -165,6 +197,7 @@ func (q *AssignQueue) Resolve(owner string, sess *models.Session, errMsg string)
 	if found {
 		q.metrics.RecordResolved(context.Background(), outcome, wait)
 	}
+	return nil
 }
 
 // broadcastPositionsLocked pushes fresh positions to every subscriber. Caller

@@ -26,7 +26,7 @@ import (
 // NewRouter builds the Gin engine. catalog and challengeHandler are nil when
 // challenges are disabled: the /api/challenges surface is then absent and
 // challengeId on create is rejected.
-func NewRouter(cfg config.Config, svc *k8s.SessionService, queue *k8s.AssignQueue, catalog content.Store, challengeHandler *handlers.ChallengeHandler, metrics *telemetry.Metrics) *gin.Engine {
+func NewRouter(cfg config.Config, svc *k8s.SessionService, queue k8s.Queue, catalog content.Store, challengeHandler *handlers.ChallengeHandler, metrics *telemetry.Metrics) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 	// HTTP server metrics (http.server.request.duration, labelled by templated

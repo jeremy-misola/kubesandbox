@@ -1,0 +1,155 @@
+{{- if .Values.redis.enabled -}}
+{{- $fullName := printf "%s-redis" (include "kubesandbox-backend.fullname" .) -}}
+# Single-instance Redis backing the shared assign queue
+# (backend/docs/redis-queue-horizontal-scaling.md §3). Deliberately simple:
+# the queue is recoverable by design (clients re-POST and re-queue; the
+# one-per-user invariant lives in the K8s owner marker, not here), so a SPOF
+# with AOF-everysec persistence is an accepted trade-off. If HA is ever
+# wanted, point redis.addr at a Sentinel/managed endpoint instead — the
+# backend's go-redis client supports it without code changes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+  selector:
+    {{- include "kubesandbox-backend.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  # Exactly one replica: the Lua scripts and pub/sub assume a single logical
+  # Redis; scaling this StatefulSet would NOT scale the queue.
+  replicas: 1
+  serviceName: {{ $fullName }}
+  selector:
+    matchLabels:
+      {{- include "kubesandbox-backend.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "kubesandbox-backend.labels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # redis:*-alpine ships the "redis" user as uid/gid 999.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          # AOF everysec: bounded loss (~1s) on crash instead of the whole
+          # queue. appendonlydir lives under --dir (/data).
+          args:
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --dir
+            - /data
+            {{- if .Values.redis.existingSecret }}
+            # $(REDIS_PASSWORD) is expanded by kubelet from the env var below,
+            # so the secret value never appears in the pod spec.
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            {{- end }}
+          {{- if .Values.redis.existingSecret }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: redis-password
+          {{- end }}
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          # TCP probes on purpose: `redis-cli ping` in an exec probe would need
+          # the password plumbed into the probe when AUTH is enabled.
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          {{- with .Values.redis.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  {{- if .Values.redis.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.redis.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.persistence.size | quote }}
+  {{- else }}
+      volumes:
+        - name: data
+          emptyDir: {}
+  {{- end }}
+---
+# Only backend pods may reach Redis: the queue carries user request payloads
+# and, with AUTH off by default, this policy IS the access control. Mirrors
+# the backend's own NetworkPolicy pattern (networkpolicy.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "kubesandbox-backend.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kubesandbox-backend.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "kubesandbox-backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}

@@ -37,6 +37,7 @@ const (
 	// per-item failures within an otherwise-successful pass that would
 	// previously have been logged and swallowed.
 	StageReconcile = "reconcile"
+	StageAdmit     = "admit"
 	StageProvision = "provision"
 	StageRecycle   = "recycle"
 	StageTrim      = "trim"

@@ -51,6 +51,36 @@ type Config struct {
 	// PoolResync is the pool manager's periodic reconcile interval.
 	PoolResync time.Duration
 
+	// --- Horizontal scaling (docs/redis-queue-horizontal-scaling.md) ---
+
+	// RedisAddr enables the Redis-backed assign queue when non-empty
+	// (host:port). Empty keeps the in-memory queue, which is only valid at
+	// replicaCount 1. Helm: .Values.config.redis.addr.
+	RedisAddr string
+	// RedisPassword authenticates to Redis (injected from a K8s Secret;
+	// .Values.config.redis.existingSecret). Empty = no AUTH.
+	RedisPassword string
+	// RedisDB is the logical database index. Helm: .Values.config.redis.db.
+	RedisDB int
+	// RedisKeyPrefix namespaces all backend keys.
+	// Helm: .Values.config.redis.keyPrefix.
+	RedisKeyPrefix string
+	// RedisDialTimeout bounds connection establishment.
+	// Helm: .Values.config.redis.dialTimeoutSeconds.
+	RedisDialTimeout time.Duration
+	// QueueMaxWait bounds how long a queue entry may wait before the janitor
+	// resolves it with a terminal error (entries survive deploys now; this
+	// replaces the implicit cap process restarts used to provide). 0 disables.
+	// Helm: .Values.config.queue.maxWaitMinutes.
+	QueueMaxWait time.Duration
+	// LeaderElection gates PoolManager.Run behind a coordination Lease so only
+	// one replica reconciles. Safe (and default-on) at 1 replica.
+	// Helm: .Values.config.leaderElection.enabled.
+	LeaderElection bool
+	// PodName is the leader-election identity (downward-API POD_NAME; falls
+	// back to the hostname, which in a Pod is the pod name anyway).
+	PodName string
+
 	// --- Guided challenges (docs/history/challenges-backend-architecture.md) ---
 
 	// ChallengesEnabled gates the whole feature: content store, seeder,
@@ -139,6 +169,15 @@ func getenvInt(key string, def int) int {
 	return n
 }
 
+// hostname is the POD_NAME fallback (in a Pod, the hostname IS the pod name).
+func hostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return "kubesandbox-backend"
+	}
+	return h
+}
+
 // hostOf extracts the hostname (without port) from a URL string, returning ""
 // on error.
 func hostOf(rawURL string) string {
@@ -183,6 +222,15 @@ func Load() Config {
 		PoolMaxTotal:   getenvInt("POOL_MAX_TOTAL", 60),
 		PoolMaxWarmAge: time.Duration(getenvInt("POOL_MAX_WARM_AGE_HOURS", 24)) * time.Hour,
 		PoolResync:     time.Duration(getenvInt("POOL_RESYNC_SECONDS", 30)) * time.Second,
+
+		RedisAddr:        getenv("REDIS_ADDR", ""),
+		RedisPassword:    getenv("REDIS_PASSWORD", ""),
+		RedisDB:          getenvInt("REDIS_DB", 0),
+		RedisKeyPrefix:   getenv("REDIS_KEY_PREFIX", "ksbx:"),
+		RedisDialTimeout: time.Duration(getenvInt("REDIS_DIAL_TIMEOUT_SECONDS", 5)) * time.Second,
+		QueueMaxWait:     time.Duration(getenvInt("QUEUE_MAX_WAIT_MINUTES", 60)) * time.Minute,
+		LeaderElection:   getenvBool("LEADER_ELECTION", true),
+		PodName:          getenv("POD_NAME", hostname()),
 
 		ChallengesEnabled:         getenvBool("CHALLENGES_ENABLED", true),
 		ChallengeSeedTimeout:      time.Duration(getenvInt("CHALLENGE_SEED_TIMEOUT_SECONDS", 10)) * time.Second,

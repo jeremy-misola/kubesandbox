@@ -51,6 +51,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Effective Redis address for the assign queue: the in-chart Service when
+redis.enabled, else redis.addr (external), else "" (in-memory queue,
+single-replica only). See backend/docs/redis-queue-horizontal-scaling.md.
+*/}}
+{{- define "kubesandbox-backend.redisAddr" -}}
+{{- if .Values.redis.enabled }}
+{{- printf "%s-redis:6379" (include "kubesandbox-backend.fullname" .) }}
+{{- else }}
+{{- .Values.redis.addr }}
+{{- end }}
+{{- end }}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "kubesandbox-backend.serviceAccountName" -}}

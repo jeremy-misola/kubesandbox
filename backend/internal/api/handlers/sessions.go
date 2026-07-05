@@ -18,7 +18,7 @@ const msgSessionExists = "you already have a sandbox (or one is still being clea
 // SessionHandler serves the /api/sessions endpoints.
 type SessionHandler struct {
 	svc   *k8s.SessionService
-	queue *k8s.AssignQueue
+	queue k8s.Queue
 	// catalog validates challengeId on create (nil = challenges disabled).
 	catalog content.Store
 	// metrics is the injected instrument set; nil is a valid no-op.
@@ -27,7 +27,7 @@ type SessionHandler struct {
 
 // NewSessionHandler constructs a SessionHandler. metrics may be nil when
 // telemetry is disabled; catalog may be nil when challenges are disabled.
-func NewSessionHandler(svc *k8s.SessionService, queue *k8s.AssignQueue, catalog content.Store, metrics *telemetry.Metrics) *SessionHandler {
+func NewSessionHandler(svc *k8s.SessionService, queue k8s.Queue, catalog content.Store, metrics *telemetry.Metrics) *SessionHandler {
 	return &SessionHandler{svc: svc, queue: queue, catalog: catalog, metrics: metrics}
 }
 
@@ -71,7 +71,15 @@ func (h *SessionHandler) Create(c *gin.Context) {
 	case errors.Is(err, k8s.ErrAlreadyExists):
 		respondError(c, http.StatusConflict, "session_exists", msgSessionExists)
 	case errors.Is(err, k8s.ErrPoolEmpty):
-		pos := h.queue.Enqueue(ident.Subject, req)
+		pos, qerr := h.queue.Enqueue(c.Request.Context(), ident.Subject, req)
+		if qerr != nil {
+			// Redis down: fail loud rather than silently losing the request.
+			// Direct assignment (warm member available) is unaffected — only
+			// queuing degrades (docs/redis-queue-horizontal-scaling.md §7).
+			respondError(c, http.StatusServiceUnavailable, "queue_unavailable",
+				"all sandboxes are in use and the waiting queue is temporarily unavailable; please retry shortly")
+			return
+		}
 		c.JSON(http.StatusAccepted, models.QueueStatus{
 			Status:   "queued",
 			Position: pos,
@@ -85,7 +93,13 @@ func (h *SessionHandler) Create(c *gin.Context) {
 // QueuePosition handles GET /api/queue — a JSON poll of the caller's queue state.
 func (h *SessionHandler) QueuePosition(c *gin.Context) {
 	ident := middleware.GetIdentity(c)
-	if pos, ok := h.queue.Position(ident.Subject); ok {
+	pos, ok, err := h.queue.Position(c.Request.Context(), ident.Subject)
+	if err != nil {
+		respondError(c, http.StatusServiceUnavailable, "queue_unavailable",
+			"the waiting queue is temporarily unavailable; please retry shortly")
+		return
+	}
+	if ok {
 		c.JSON(http.StatusOK, models.QueueStatus{Status: "queued", Position: pos})
 		return
 	}

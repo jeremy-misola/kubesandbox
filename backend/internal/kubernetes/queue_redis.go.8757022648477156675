@@ -1,0 +1,534 @@
+package kubernetes
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/redisclient"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
+)
+
+// Redis data model (docs/redis-queue-horizontal-scaling.md §3):
+//
+//	queue:z          ZSET   member = owner, score = monotonic sequence
+//	queue:seq        STRING INCR counter feeding ZSET scores (clock-skew-proof
+//	                        FIFO across replicas)
+//	queue:req:{o}    STRING JSON queuedPayload (request + enqueuedAt)
+//	queue:ch         PUBSUB relayMessage JSON: terminal events + "changed"
+//
+// Ordering and payload are separate keys so Position/Head never deserialize
+// requests they don't need. All mutations that must be atomic are Lua scripts.
+
+// queueRelayResync is how often the relay refreshes positions/depth even
+// without pub/sub traffic, and the cadence of the vanished-entry terminal
+// check (heals a flushed Redis into an explicit "please retry" for
+// subscribers instead of a silently frozen stream).
+const queueRelayResync = 30 * time.Second
+
+// queuedPayload is the per-owner JSON blob behind queue:req:{owner}.
+type queuedPayload struct {
+	Req        models.CreateSessionRequest `json:"req"`
+	EnqueuedAt time.Time                   `json:"enqueuedAt"`
+}
+
+// relayMessage travels on the queue:ch pub/sub channel. Type is "assigned" or
+// "error" (terminal, Owner set) or "changed" (queue membership changed;
+// subscribers should refresh positions).
+type relayMessage struct {
+	Type    string          `json:"type"`
+	Owner   string          `json:"owner,omitempty"`
+	Session *models.Session `json:"session,omitempty"`
+	Message string          `json:"message,omitempty"`
+}
+
+// enqueueScript dedups by owner and appends atomically. Returns
+// {position, existing} where existing=1 means the owner was already queued.
+var enqueueScript = redis.NewScript(`
+local rank = redis.call('ZRANK', KEYS[1], ARGV[1])
+if rank ~= false then return {rank + 1, 1} end
+local seq = redis.call('INCR', KEYS[2])
+redis.call('ZADD', KEYS[1], seq, ARGV[1])
+redis.call('SET', KEYS[3], ARGV[2])
+return {redis.call('ZCARD', KEYS[1]), 0}
+`)
+
+// gcPayloadScript deletes an orphaned payload only if the owner is (still)
+// absent from the order ZSET, so the janitor cannot race a concurrent enqueue
+// and delete a fresh payload.
+var gcPayloadScript = redis.NewScript(`
+if redis.call('ZSCORE', KEYS[1], ARGV[1]) == false then
+	return redis.call('DEL', KEYS[2])
+end
+return 0
+`)
+
+// resolveScript removes the owner and publishes the terminal + changed events
+// atomically. ZREM returning 0 (someone else resolved first) aborts with nil,
+// guaranteeing at most one terminal publish per queue entry. Returns the
+// payload so the caller can record the wait-duration histogram.
+var resolveScript = redis.NewScript(`
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 0 then return false end
+local payload = redis.call('GET', KEYS[2])
+redis.call('DEL', KEYS[2])
+redis.call('PUBLISH', KEYS[3], ARGV[2])
+redis.call('PUBLISH', KEYS[3], ARGV[3])
+if payload == false then return '' end
+return payload
+`)
+
+// RedisQueueConfig tunes the Redis-backed queue.
+type RedisQueueConfig struct {
+	// MaxWait bounds how long an entry may sit queued before the janitor
+	// resolves it with a terminal error (entries survive deploys now, so
+	// something must replace the implicit cap that process restarts used to
+	// provide). Zero disables expiry.
+	MaxWait time.Duration
+}
+
+// RedisQueue is the Redis-backed Queue implementation, safe behind N backend
+// replicas: ordering lives in a ZSET keyed by a monotonic counter, and SSE
+// events relay across pods via pub/sub with per-pod local fan-out.
+type RedisQueue struct {
+	rdb     *redisclient.Client
+	cfg     RedisQueueConfig
+	metrics *telemetry.Metrics
+
+	// ownedSessionLookup lets the relay's slow resync heal a vanished queue
+	// entry (e.g. Redis flush) into the correct terminal event: session found
+	// → "assigned", none → "error, please retry". nil falls back to the error
+	// terminal. Injected from main to avoid a SessionService dependency here.
+	ownedSessionLookup func(ctx context.Context, owner string) *models.Session
+
+	mu   sync.Mutex
+	subs map[string]map[chan QueueEvent]struct{}
+
+	// depth caches ZCARD for the queue.depth gauge: an OTel gauge callback
+	// must never block on the network at export time. Refreshed on local
+	// mutations and by the relay resync tick. Note: at N replicas every pod
+	// reports the same global depth — aggregate with max(), not sum().
+	depth atomic.Int64
+
+	// relayReady is closed once the pub/sub subscription is confirmed;
+	// readyOnce guards it. Used by tests to avoid publish-before-subscribe
+	// races.
+	relayReady chan struct{}
+	readyOnce  sync.Once
+}
+
+// compile-time interface check.
+var _ Queue = (*RedisQueue)(nil)
+
+// NewRedisQueue constructs a RedisQueue. Call Run to start the SSE relay;
+// queue state methods work without it, but cross-pod event delivery and the
+// depth/position resync need the relay.
+func NewRedisQueue(rdb *redisclient.Client, cfg RedisQueueConfig) *RedisQueue {
+	return &RedisQueue{
+		rdb:        rdb,
+		cfg:        cfg,
+		subs:       map[string]map[chan QueueEvent]struct{}{},
+		relayReady: make(chan struct{}),
+	}
+}
+
+// SetMetrics injects the telemetry instrument set (nil is a valid no-op) and
+// wires the queue.depth gauge to the cached ZCARD.
+func (q *RedisQueue) SetMetrics(m *telemetry.Metrics) {
+	q.metrics = m
+	m.RegisterQueueDepth(func() int64 { return q.depth.Load() })
+}
+
+// SetOwnedSessionLookup injects the owned-session probe used by the relay
+// resync (see the field doc).
+func (q *RedisQueue) SetOwnedSessionLookup(fn func(ctx context.Context, owner string) *models.Session) {
+	q.ownedSessionLookup = fn
+}
+
+func (q *RedisQueue) zKey() string            { return q.rdb.Key("queue:z") }
+func (q *RedisQueue) seqKey() string          { return q.rdb.Key("queue:seq") }
+func (q *RedisQueue) chKey() string           { return q.rdb.Key("queue:ch") }
+func (q *RedisQueue) reqKey(owner string) string { return q.rdb.Key("queue:req:") + owner }
+
+// Enqueue adds owner (deduplicated across all replicas) and returns the
+// 1-based position.
+func (q *RedisQueue) Enqueue(ctx context.Context, owner string, req models.CreateSessionRequest) (int, error) {
+	payload, err := json.Marshal(queuedPayload{Req: req, EnqueuedAt: time.Now().UTC()})
+	if err != nil {
+		return 0, fmt.Errorf("marshal queue payload: %w", err)
+	}
+	res, err := enqueueScript.Run(ctx, q.rdb,
+		[]string{q.zKey(), q.seqKey(), q.reqKey(owner)}, owner, payload).Slice()
+	if err != nil {
+		return 0, fmt.Errorf("redis enqueue: %w", err)
+	}
+	if len(res) != 2 {
+		return 0, fmt.Errorf("redis enqueue: unexpected script reply %v", res)
+	}
+	pos := int(toInt64(res[0]))
+	existing := toInt64(res[1]) == 1
+	if !existing {
+		// A new enqueue means position == ZCARD, so the depth cache is exact.
+		q.depth.Store(int64(pos))
+		q.metrics.RecordEnqueued(ctx)
+	}
+	return pos, nil
+}
+
+// Position returns the 1-based position of owner, or false if not queued.
+func (q *RedisQueue) Position(ctx context.Context, owner string) (int, bool, error) {
+	rank, err := q.rdb.ZRank(ctx, q.zKey(), owner).Result()
+	if errors.Is(err, redis.Nil) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("redis position: %w", err)
+	}
+	return int(rank) + 1, true, nil
+}
+
+// Len returns the queue length (global, across all replicas).
+func (q *RedisQueue) Len(ctx context.Context) (int, error) {
+	n, err := q.rdb.ZCard(ctx, q.zKey()).Result()
+	if err != nil {
+		return 0, fmt.Errorf("redis len: %w", err)
+	}
+	q.depth.Store(n)
+	return int(n), nil
+}
+
+// Head returns the owner and request at the front of the queue. Entries whose
+// payload is missing or corrupt (leaked half-writes) are removed and skipped
+// so they can never wedge admission.
+func (q *RedisQueue) Head(ctx context.Context) (string, models.CreateSessionRequest, bool, error) {
+	for {
+		owners, err := q.rdb.ZRange(ctx, q.zKey(), 0, 0).Result()
+		if err != nil {
+			return "", models.CreateSessionRequest{}, false, fmt.Errorf("redis head: %w", err)
+		}
+		if len(owners) == 0 {
+			return "", models.CreateSessionRequest{}, false, nil
+		}
+		owner := owners[0]
+		raw, err := q.rdb.Get(ctx, q.reqKey(owner)).Result()
+		if errors.Is(err, redis.Nil) {
+			log.Printf("queue: head %q has no payload; dropping entry", owner)
+			q.rdb.ZRem(ctx, q.zKey(), owner)
+			continue
+		}
+		if err != nil {
+			return "", models.CreateSessionRequest{}, false, fmt.Errorf("redis head payload: %w", err)
+		}
+		var p queuedPayload
+		if err := json.Unmarshal([]byte(raw), &p); err != nil {
+			log.Printf("queue: head %q payload corrupt; dropping entry: %v", owner, err)
+			q.rdb.ZRem(ctx, q.zKey(), owner)
+			q.rdb.Del(ctx, q.reqKey(owner))
+			continue
+		}
+		return owner, p.Req, true, nil
+	}
+}
+
+// Resolve removes owner from the queue (atomically with the terminal publish,
+// so at most one terminal event is ever emitted per entry) and delivers the
+// terminal event: "assigned" when sess is non-nil, else "error". Resolving an
+// owner that is not queued is a no-op. Subscribers on other pods receive the
+// event via the relay; local subscribers are also delivered directly so a
+// relay outage cannot swallow a terminal on the resolving pod.
+func (q *RedisQueue) Resolve(ctx context.Context, owner string, sess *models.Session, errMsg string) error {
+	msg := relayMessage{Type: "assigned", Owner: owner, Session: sess}
+	outcome := telemetry.OutcomeAssigned
+	if sess == nil {
+		msg = relayMessage{Type: "error", Owner: owner, Message: errMsg}
+		outcome = telemetry.OutcomeError
+	}
+	msgJSON, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal terminal event: %w", err)
+	}
+	changedJSON, _ := json.Marshal(relayMessage{Type: "changed"})
+
+	res, err := resolveScript.Run(ctx, q.rdb,
+		[]string{q.zKey(), q.reqKey(owner), q.chKey()}, owner, msgJSON, changedJSON).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil // not queued (or already resolved elsewhere) — no-op
+	}
+	if err != nil {
+		return fmt.Errorf("redis resolve: %w", err)
+	}
+
+	if raw, ok := res.(string); ok && raw != "" {
+		var p queuedPayload
+		if jerr := json.Unmarshal([]byte(raw), &p); jerr == nil && !p.EnqueuedAt.IsZero() {
+			q.metrics.RecordResolved(ctx, outcome, time.Since(p.EnqueuedAt))
+		}
+	}
+
+	// Direct local delivery: the relay will republish this to us, but by then
+	// the owner's local registry entry is gone, so there is no double event.
+	q.deliverTerminal(owner, terminalEvent(msg))
+	q.refreshDepth(ctx)
+	return nil
+}
+
+// Subscribe attaches an SSE listener for owner. Registration happens BEFORE
+// the membership check so a resolve landing in between cannot be missed — the
+// relay (or the direct local delivery in Resolve) finds the registration and
+// delivers the terminal event.
+func (q *RedisQueue) Subscribe(ctx context.Context, owner string) (<-chan QueueEvent, func(), bool, error) {
+	ch := make(chan QueueEvent, 8)
+	q.mu.Lock()
+	if q.subs[owner] == nil {
+		q.subs[owner] = map[chan QueueEvent]struct{}{}
+	}
+	q.subs[owner][ch] = struct{}{}
+	q.mu.Unlock()
+
+	unsub := func() {
+		q.mu.Lock()
+		if m := q.subs[owner]; m != nil {
+			delete(m, ch)
+			if len(m) == 0 {
+				delete(q.subs, owner)
+			}
+		}
+		q.mu.Unlock()
+	}
+
+	pos, queued, err := q.Position(ctx, owner)
+	if err != nil {
+		unsub()
+		return nil, nil, false, err
+	}
+	if !queued {
+		unsub()
+		return nil, nil, false, nil
+	}
+	trySend(ch, QueueEvent{Type: "queued", Position: pos})
+	return ch, unsub, true, nil
+}
+
+// Run is the per-pod SSE relay: it subscribes to queue:ch, fans events out to
+// local subscribers, and periodically resyncs positions/depth from the
+// authoritative ZSET (which also heals missed pub/sub messages — position is
+// level state, not a log). Blocks until ctx is done.
+func (q *RedisQueue) Run(ctx context.Context) {
+	pubsub := q.rdb.Subscribe(ctx, q.chKey())
+	defer pubsub.Close()
+
+	// Confirm the subscription before announcing readiness; go-redis
+	// auto-reconnects the pub/sub connection afterwards.
+	if _, err := pubsub.Receive(ctx); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		log.Printf("queue: relay subscribe failed (will keep retrying via client reconnect): %v", err)
+	} else {
+		q.readyOnce.Do(func() { close(q.relayReady) })
+	}
+	log.Printf("queue: redis relay started (channel=%s)", q.chKey())
+
+	msgs := pubsub.Channel()
+	tick := time.NewTicker(queueRelayResync)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			q.resync(ctx)
+		case msg, ok := <-msgs:
+			if !ok {
+				return
+			}
+			q.handleRelayMessage(ctx, msg.Payload)
+		}
+	}
+}
+
+// handleRelayMessage routes one pub/sub payload.
+func (q *RedisQueue) handleRelayMessage(ctx context.Context, payload string) {
+	var m relayMessage
+	if err := json.Unmarshal([]byte(payload), &m); err != nil {
+		log.Printf("queue: relay message corrupt: %v", err)
+		return
+	}
+	switch m.Type {
+	case "changed":
+		// Membership changed: refresh positions for local subscribers still
+		// present. Missing owners are skipped here — their terminal event is
+		// in flight (or the slow resync will heal them).
+		q.refreshDepth(ctx)
+		q.refreshPositions(ctx, false)
+	case "assigned", "error":
+		q.deliverTerminal(m.Owner, terminalEvent(m))
+	}
+}
+
+// resync refreshes depth and positions, including the vanished-entry check:
+// an owner with local subscribers but no queue entry and no session gets an
+// explicit terminal error instead of a silently frozen stream.
+func (q *RedisQueue) resync(ctx context.Context) {
+	q.refreshDepth(ctx)
+	q.refreshPositions(ctx, true)
+}
+
+// refreshPositions pushes fresh ZRANK positions to local subscribers.
+// terminalCheck also resolves owners whose entry vanished (Redis flush,
+// missed terminal): owned session → "assigned", none → "error".
+func (q *RedisQueue) refreshPositions(ctx context.Context, terminalCheck bool) {
+	q.mu.Lock()
+	owners := make([]string, 0, len(q.subs))
+	for owner := range q.subs {
+		owners = append(owners, owner)
+	}
+	q.mu.Unlock()
+
+	for _, owner := range owners {
+		pos, queued, err := q.Position(ctx, owner)
+		if err != nil {
+			return // Redis unreachable; the next resync retries
+		}
+		if queued {
+			q.sendToOwner(owner, QueueEvent{Type: "queued", Position: pos})
+			continue
+		}
+		if !terminalCheck {
+			continue
+		}
+		if q.ownedSessionLookup != nil {
+			if sess := q.ownedSessionLookup(ctx, owner); sess != nil {
+				q.deliverTerminal(owner, QueueEvent{Type: "assigned", Session: sess})
+				continue
+			}
+		}
+		q.deliverTerminal(owner, QueueEvent{
+			Type:    "error",
+			Message: "your queue entry no longer exists; please retry",
+		})
+	}
+}
+
+// sendToOwner best-effort delivers a non-terminal event to owner's local
+// subscribers.
+func (q *RedisQueue) sendToOwner(owner string, ev QueueEvent) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for ch := range q.subs[owner] {
+		trySend(ch, ev)
+	}
+}
+
+// deliverTerminal removes owner's local registration and delivers the
+// terminal event, closing the channels. Removing first makes duplicate
+// delivery (direct + relayed) a natural no-op.
+func (q *RedisQueue) deliverTerminal(owner string, ev QueueEvent) {
+	q.mu.Lock()
+	chans := q.subs[owner]
+	delete(q.subs, owner)
+	q.mu.Unlock()
+	for ch := range chans {
+		trySend(ch, ev)
+		close(ch)
+	}
+}
+
+// refreshDepth updates the cached queue.depth gauge value.
+func (q *RedisQueue) refreshDepth(ctx context.Context) {
+	if n, err := q.rdb.ZCard(ctx, q.zKey()).Result(); err == nil {
+		q.depth.Store(n)
+	}
+}
+
+// Janitor is called from the pool reconcile loop (leader only). It removes
+// order entries without payloads, deletes payloads without order entries, and
+// expires entries older than MaxWait with a terminal error.
+func (q *RedisQueue) Janitor(ctx context.Context) error {
+	owners, err := q.rdb.ZRange(ctx, q.zKey(), 0, -1).Result()
+	if err != nil {
+		return fmt.Errorf("redis janitor list: %w", err)
+	}
+	inQueue := map[string]bool{}
+	for _, owner := range owners {
+		inQueue[owner] = true
+		raw, err := q.rdb.Get(ctx, q.reqKey(owner)).Result()
+		if errors.Is(err, redis.Nil) {
+			log.Printf("queue: janitor dropping %q (no payload)", owner)
+			q.rdb.ZRem(ctx, q.zKey(), owner)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("redis janitor payload: %w", err)
+		}
+		var p queuedPayload
+		if jerr := json.Unmarshal([]byte(raw), &p); jerr != nil {
+			log.Printf("queue: janitor dropping %q (corrupt payload)", owner)
+			q.rdb.ZRem(ctx, q.zKey(), owner)
+			q.rdb.Del(ctx, q.reqKey(owner))
+			continue
+		}
+		if q.cfg.MaxWait > 0 && time.Since(p.EnqueuedAt) > q.cfg.MaxWait {
+			log.Printf("queue: janitor expiring %q (waited > %s)", owner, q.cfg.MaxWait)
+			if err := q.Resolve(ctx, owner, nil, "queue wait timed out; please retry"); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Orphaned payloads (entry resolved but DEL lost, or half-written state).
+	var cursor uint64
+	prefix := q.rdb.Key("queue:req:")
+	for {
+		keys, next, err := q.rdb.Scan(ctx, cursor, prefix+"*", 100).Result()
+		if err != nil {
+			return fmt.Errorf("redis janitor scan: %w", err)
+		}
+		for _, k := range keys {
+			owner := strings.TrimPrefix(k, prefix)
+			if !inQueue[owner] {
+				// Atomic membership re-check inside the script: a concurrent
+				// enqueue since the ZRANGE snapshot must not lose its payload.
+				if n, err := gcPayloadScript.Run(ctx, q.rdb, []string{q.zKey(), k}, owner).Int64(); err == nil && n > 0 {
+					log.Printf("queue: janitor deleted orphaned payload for %q", owner)
+				}
+			}
+		}
+		if next == 0 {
+			break
+		}
+		cursor = next
+	}
+	q.refreshDepth(ctx)
+	return nil
+}
+
+// terminalEvent converts a terminal relayMessage into the subscriber-facing
+// QueueEvent.
+func terminalEvent(m relayMessage) QueueEvent {
+	if m.Type == "assigned" {
+		return QueueEvent{Type: "assigned", Session: m.Session}
+	}
+	return QueueEvent{Type: "error", Message: m.Message}
+}
+
+// toInt64 defensively coerces a Lua script reply element.
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	default:
+		return 0
+	}
+}

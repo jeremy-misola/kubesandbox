@@ -21,6 +21,8 @@ import (
 	"github.com/jeremy-misola/kubesandbox/backend/internal/config"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/content"
 	k8s "github.com/jeremy-misola/kubesandbox/backend/internal/kubernetes"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
+	"github.com/jeremy-misola/kubesandbox/backend/internal/redisclient"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
@@ -51,11 +53,43 @@ func main() {
 	)
 	svc.SetMetrics(metrics)
 
-	queue := k8s.NewAssignQueue()
-	queue.SetMetrics(metrics)
-
 	// Background loops; cancelled on shutdown.
 	bgCtx, bgCancel := context.WithCancel(context.Background())
+
+	// Assign queue: Redis-backed shared state when REDIS_ADDR is set (required
+	// for >1 replica), else the in-memory single-replica queue
+	// (docs/redis-queue-horizontal-scaling.md).
+	var queue k8s.Queue
+	if cfg.RedisAddr != "" {
+		rc := redisclient.New(redisclient.Options{
+			Addr:        cfg.RedisAddr,
+			Password:    cfg.RedisPassword,
+			DB:          cfg.RedisDB,
+			KeyPrefix:   cfg.RedisKeyPrefix,
+			DialTimeout: cfg.RedisDialTimeout,
+		})
+		if err := rc.Healthy(bgCtx); err != nil {
+			// Non-fatal: the queue degrades to reject-new-enqueues until Redis
+			// is reachable; direct assignment and pool healing are unaffected.
+			log.Printf("queue: redis %s not reachable yet: %v", cfg.RedisAddr, err)
+		}
+		rq := k8s.NewRedisQueue(rc, k8s.RedisQueueConfig{MaxWait: cfg.QueueMaxWait})
+		rq.SetOwnedSessionLookup(func(ctx context.Context, owner string) *models.Session {
+			sessions, err := svc.List(ctx, owner)
+			if err != nil || len(sessions) == 0 {
+				return nil
+			}
+			return &sessions[0]
+		})
+		go rq.Run(bgCtx)
+		queue = rq
+		log.Printf("queue: redis-backed (addr=%s prefix=%s maxWait=%s)",
+			cfg.RedisAddr, cfg.RedisKeyPrefix, cfg.QueueMaxWait)
+	} else {
+		queue = k8s.NewAssignQueue()
+		log.Printf("queue: in-memory (single-replica mode; set REDIS_ADDR to scale out)")
+	}
+	queue.SetMetrics(metrics)
 
 	// Guided challenges (docs/history/challenges-backend-architecture.md):
 	// content store (ConfigMaps via GitOps), tenant-client factory, async
@@ -129,7 +163,16 @@ func main() {
 		Resync:     cfg.PoolResync,
 	})
 	pool.SetMetrics(metrics)
-	go pool.Run(bgCtx)
+	if cfg.LeaderElection {
+		// Exactly one replica reconciles; standbys serve HTTP and campaign.
+		clientset, err := k8s.NewClientset()
+		if err != nil {
+			log.Fatalf("kubernetes clientset (leader election): %v", err)
+		}
+		go k8s.RunWithLeaderElection(bgCtx, clientset, cfg.Namespace, cfg.PodName, pool.Run)
+	} else {
+		go pool.Run(bgCtx)
+	}
 
 	// Run the server.
 	go func() {

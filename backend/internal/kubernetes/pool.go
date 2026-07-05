@@ -9,6 +9,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/jeremy-misola/kubesandbox/backend/internal/models"
 	"github.com/jeremy-misola/kubesandbox/backend/internal/telemetry"
 )
 
@@ -39,7 +40,7 @@ type PoolConfig struct {
 // actions from a fresh LIST, so missed events are harmless.
 type PoolManager struct {
 	svc   *SessionService
-	queue *AssignQueue
+	queue Queue
 	cfg   PoolConfig
 	now   func() time.Time
 	poke  chan struct{}
@@ -56,7 +57,7 @@ type PoolManager struct {
 
 // NewPoolManager constructs a PoolManager. Zero/negative config values get safe
 // defaults (target 2, cap 60, warm age 24h, resync 30s).
-func NewPoolManager(svc *SessionService, queue *AssignQueue, cfg PoolConfig) *PoolManager {
+func NewPoolManager(svc *SessionService, queue Queue, cfg PoolConfig) *PoolManager {
 	if cfg.TargetWarm <= 0 {
 		cfg.TargetWarm = 2
 	}
@@ -224,9 +225,17 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 	// 1) Admit queued requests while Ready members exist. Assign re-lists and
 	// CASes internally, so this is safe against concurrent request-path
 	// assignments; ErrPoolEmpty just means someone else got there first.
+	// A queue (Redis) error skips admission for this pass only — steps 2-5
+	// keep healing the pool without the queue.
 	admitted := 0
+admitLoop:
 	for admitted < len(fresh) {
-		owner, req, ok := p.queue.Head()
+		owner, req, ok, qerr := p.queue.Head(ctx)
+		if qerr != nil {
+			log.Printf("pool: queue unavailable, skipping admission this pass: %v", qerr)
+			p.metrics.RecordReconcileError(ctx, telemetry.StageAdmit)
+			break
+		}
 		if !ok {
 			break
 		}
@@ -234,16 +243,28 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 		switch {
 		case err == nil:
 			log.Printf("pool: admitted queued owner to %s", sess.Name)
-			p.queue.Resolve(owner, sess, "")
+			p.resolve(ctx, owner, sess, "")
 			p.metrics.RecordClaimed(ctx, telemetry.SourceQueue)
 			admitted++
 		case errors.Is(err, ErrAlreadyExists):
-			p.queue.Resolve(owner, nil, "you already have a sandbox")
+			// The owner marker exists. If the owner truly holds a session,
+			// resolve with it as "assigned" — this is also the heal for a
+			// leader that crashed between Assign and Resolve (the new leader
+			// lands here on the next pass). If no session is visible yet, the
+			// marker is either a concurrent in-flight Assign or an orphan the
+			// marker GC clears within markerOrphanGrace: leave the entry
+			// queued and stop this pass rather than firing a wrong terminal.
+			if sessions, lerr := p.svc.List(ctx, owner); lerr == nil && len(sessions) > 0 {
+				log.Printf("pool: queued owner already owns %s; resolving as assigned", sessions[0].Name)
+				p.resolve(ctx, owner, &sessions[0], "")
+				continue
+			}
+			break admitLoop // steps 2-5 (incl. marker GC) must still run
 		case errors.Is(err, ErrPoolEmpty):
 			return nil // no members left this pass; refill below next pass
 		default:
 			log.Printf("pool: queued assignment for head failed: %v", err)
-			p.queue.Resolve(owner, nil, "assignment failed; please retry")
+			p.resolve(ctx, owner, nil, "assignment failed; please retry")
 		}
 	}
 	availableNow := len(fresh) - admitted
@@ -315,7 +336,9 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 		if now.Sub(m.GetCreationTimestamp().Time) < markerOrphanGrace {
 			continue
 		}
-		if _, queued := p.queue.Position(owner); queued {
+		// A queue (Redis) error is treated as "possibly queued": never GC a
+		// queued user's marker because the queue blinked.
+		if _, queued, qerr := p.queue.Position(ctx, owner); qerr != nil || queued {
 			continue
 		}
 		log.Printf("pool: removing orphaned owner marker %s", m.GetName())
@@ -326,5 +349,24 @@ func (p *PoolManager) reconcileOnce(ctx context.Context) error {
 			p.metrics.RecordMarkerOrphanGC(ctx)
 		}
 	}
+
+	// 6) Queue janitor (Redis-backed queues only): payload/order divergence
+	// cleanup and max-wait expiry. Leader-only by construction — reconcileOnce
+	// runs on the leader.
+	if j, ok := p.queue.(interface{ Janitor(context.Context) error }); ok {
+		if err := j.Janitor(ctx); err != nil {
+			log.Printf("pool: queue janitor: %v", err)
+			p.metrics.RecordReconcileError(ctx, telemetry.StageAdmit)
+		}
+	}
 	return nil
+}
+
+// resolve wraps queue.Resolve with error logging: a failed resolve is not a
+// reconcile failure (the entry survives and the next pass retries — Assign
+// hitting ErrAlreadyExists then resolves with the owned session).
+func (p *PoolManager) resolve(ctx context.Context, owner string, sess *models.Session, errMsg string) {
+	if err := p.queue.Resolve(ctx, owner, sess, errMsg); err != nil {
+		log.Printf("pool: queue resolve for %q failed: %v", owner, err)
+	}
 }

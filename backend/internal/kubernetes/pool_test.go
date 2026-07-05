@@ -63,6 +63,35 @@ func poolStateCounts(t *testing.T, svc *SessionService) (available, claimed, tot
 	return
 }
 
+// mustEnqueue / queueLen / queuePos wrap the ctx+error Queue signatures for
+// tests where the in-memory implementation cannot fail.
+func mustEnqueue(t *testing.T, q Queue, owner string, req models.CreateSessionRequest) int {
+	t.Helper()
+	pos, err := q.Enqueue(context.Background(), owner, req)
+	if err != nil {
+		t.Fatalf("enqueue %q: %v", owner, err)
+	}
+	return pos
+}
+
+func queueLen(t *testing.T, q Queue) int {
+	t.Helper()
+	n, err := q.Len(context.Background())
+	if err != nil {
+		t.Fatalf("queue len: %v", err)
+	}
+	return n
+}
+
+func queuePos(t *testing.T, q Queue, owner string) (int, bool) {
+	t.Helper()
+	pos, ok, err := q.Position(context.Background(), owner)
+	if err != nil {
+		t.Fatalf("queue position %q: %v", owner, err)
+	}
+	return pos, ok
+}
+
 func newTestPool(t *testing.T, cfg PoolConfig, now time.Time, objs ...*unstructured.Unstructured) (*PoolManager, *SessionService, *AssignQueue) {
 	t.Helper()
 	ros := make([]runtime.Object, len(objs))
@@ -185,10 +214,10 @@ func TestPoolAdmitsQueuedRequests(t *testing.T) {
 		poolMember("s-pool-ready", now.Add(-10*time.Minute), true),
 	)
 
-	queue.Enqueue("queued-user", models.CreateSessionRequest{TTLMinutes: 60})
-	ch, unsub, ok := queue.Subscribe("queued-user")
-	if !ok {
-		t.Fatalf("subscribe failed")
+	mustEnqueue(t, queue, "queued-user", models.CreateSessionRequest{TTLMinutes: 60})
+	ch, unsub, ok, err := queue.Subscribe(context.Background(), "queued-user")
+	if err != nil || !ok {
+		t.Fatalf("subscribe failed (ok=%v err=%v)", ok, err)
 	}
 	defer unsub()
 
@@ -196,8 +225,8 @@ func TestPoolAdmitsQueuedRequests(t *testing.T) {
 		t.Fatalf("reconcile: %v", err)
 	}
 
-	if queue.Len() != 0 {
-		t.Fatalf("queue should be drained, len=%d", queue.Len())
+	if n := queueLen(t, queue); n != 0 {
+		t.Fatalf("queue should be drained, len=%d", n)
 	}
 	sessions, err := svc.List(context.Background(), "queued-user")
 	if err != nil || len(sessions) != 1 {
@@ -226,8 +255,8 @@ func TestPoolQueueFIFOWhenScarce(t *testing.T) {
 		poolMember("s-pool-only", now.Add(-10*time.Minute), true),
 	)
 
-	queue.Enqueue("first", models.CreateSessionRequest{})
-	queue.Enqueue("second", models.CreateSessionRequest{})
+	mustEnqueue(t, queue, "first", models.CreateSessionRequest{})
+	mustEnqueue(t, queue, "second", models.CreateSessionRequest{})
 
 	if err := pm.reconcileOnce(context.Background()); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -238,7 +267,7 @@ func TestPoolQueueFIFOWhenScarce(t *testing.T) {
 	if got, _ := svc.List(context.Background(), "second"); len(got) != 0 {
 		t.Fatalf("second should still be waiting")
 	}
-	if pos, ok := queue.Position("second"); !ok || pos != 1 {
+	if pos, ok := queuePos(t, queue, "second"); !ok || pos != 1 {
 		t.Fatalf("second position = %d/%v, want 1/true", pos, ok)
 	}
 }
@@ -252,7 +281,7 @@ func TestPoolMarkerGC(t *testing.T) {
 		ownerMarkerFixture("fresh-owner", now.Add(-10*time.Second)),   // in-flight: too young to GC
 		ownerMarkerFixture("queued-owner", now.Add(-10*time.Minute)),  // protected: still queued
 	)
-	queue.Enqueue("queued-owner", models.CreateSessionRequest{})
+	mustEnqueue(t, queue, "queued-owner", models.CreateSessionRequest{})
 
 	if err := pm.reconcileOnce(context.Background()); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -277,7 +306,7 @@ func TestPoolMarkerGC(t *testing.T) {
 	// warm member available this pass) — either way they must not be wedged.
 	if !got["queued-owner"] {
 		if sessions, _ := svc.List(context.Background(), "queued-owner"); len(sessions) == 0 {
-			if _, stillQueued := queue.Position("queued-owner"); stillQueued {
+			if _, stillQueued := queuePos(t, queue, "queued-owner"); stillQueued {
 				t.Fatalf("queued owner lost marker while still waiting")
 			}
 		}
@@ -294,13 +323,13 @@ func TestPoolEmptyAssignFallsBackToQueueFlow(t *testing.T) {
 	if err != ErrPoolEmpty {
 		t.Fatalf("err = %v, want ErrPoolEmpty", err)
 	}
-	queue.Enqueue("walk-in", models.CreateSessionRequest{})
+	mustEnqueue(t, queue, "walk-in", models.CreateSessionRequest{})
 
 	// First reconcile: nothing Ready yet -> refill provisions a member.
 	if err := pm.reconcileOnce(context.Background()); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if queue.Len() != 1 {
+	if queueLen(t, queue) != 1 {
 		t.Fatalf("not admitted before member is Ready")
 	}
 
@@ -322,7 +351,7 @@ func TestPoolEmptyAssignFallsBackToQueueFlow(t *testing.T) {
 	if err := pm.reconcileOnce(context.Background()); err != nil {
 		t.Fatalf("reconcile2: %v", err)
 	}
-	if queue.Len() != 0 {
+	if queueLen(t, queue) != 0 {
 		t.Fatalf("waiter should be admitted once a member is Ready")
 	}
 	if sessions, _ := svc.List(context.Background(), "walk-in"); len(sessions) != 1 {

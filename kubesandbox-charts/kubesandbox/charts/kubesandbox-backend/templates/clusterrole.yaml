@@ -41,4 +41,18 @@ rules:
     resources:
       - configmaps
     verbs: ["get", "list", "watch", "create", "update", "delete"]
+{{- if .Values.leaderElection.enabled }}
+  # Leader-election Lease for the pool reconcile loop: exactly one backend
+  # replica reconciles at a time (backend/docs/redis-queue-horizontal-scaling.md
+  # §5). client-go's LeaseLock needs only get/create/update; restricted with
+  # resourceNames to the one Lease the backend uses — except `create`, which
+  # cannot be name-scoped in RBAC and so gets its own unrestricted rule.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["kubesandbox-backend-pool"]
+    verbs: ["get", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+{{- end }}
 {{- end }}

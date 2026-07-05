@@ -66,11 +66,15 @@ When `POOL_ENABLED` (default), the request path never runs a cold build:
 - **Assignment** (`kubernetes/assign.go`) reserves the owner marker, then claims
   a warm member with an optimistic-concurrency `Update` (loser of a race retries
   the next member). TTL starts here: `spec.expiresAt` is stamped at hand-over.
-- **Queue** (`kubernetes/queue.go`) is an in-memory FIFO (per replica; the
-  backend runs a single replica). If the pool is empty the request is enqueued
+- **Queue** (`kubernetes/queue.go`, `kubernetes/queue_redis.go`) is the FIFO
+  waiting line behind the `Queue` interface. With `REDIS_ADDR` set it is
+  Redis-backed (shared across replicas; SSE events relay via pub/sub) and the
+  backend scales horizontally — the pool reconcile loop then runs on a single
+  leader elected via a coordination Lease. Without Redis it falls back to the
+  in-memory single-replica queue. If the pool is empty the request is enqueued
   and admitted by the pool manager as members become `Ready`; the one-per-user
-  invariant lives in the marker, not the queue, so losing the queue on restart
-  is safe (the user re-POSTs).
+  invariant lives in the marker, not the queue. See
+  `docs/redis-queue-horizontal-scaling.md`.
 
 With `POOL_ENABLED=false` the backend falls back to legacy direct creates: a
 claim named deterministically from the owner (`s-` + `sha256(ownerRef)[:16]`),

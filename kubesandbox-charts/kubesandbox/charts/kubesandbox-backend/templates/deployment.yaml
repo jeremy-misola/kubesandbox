@@ -1,3 +1,14 @@
+{{- $redisAddr := include "kubesandbox-backend.redisAddr" . }}
+{{- $maxReplicas := int .Values.replicaCount }}
+{{- if .Values.autoscaling.enabled }}
+{{- $maxReplicas = int .Values.autoscaling.maxReplicas }}
+{{- end }}
+{{- if and (gt $maxReplicas 1) (not $redisAddr) }}
+{{- fail "replicaCount/autoscaling.maxReplicas > 1 requires a shared queue: set redis.enabled=true or redis.addr (backend/docs/redis-queue-horizontal-scaling.md)" }}
+{{- end }}
+{{- if and (gt $maxReplicas 1) (not .Values.leaderElection.enabled) }}
+{{- fail "replicaCount/autoscaling.maxReplicas > 1 requires leaderElection.enabled=true (only one replica may run the pool reconcile loop)" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -49,6 +60,12 @@ spec:
               value: {{ .Values.config.port | quote }}
             - name: NAMESPACE
               value: {{ .Values.config.namespace | quote }}
+            # Pod identity: leader-election Lease holder id, and the
+            # service.instance.id in OTEL_RESOURCE_ATTRIBUTES below.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             # Image the backend stamps onto every KubeSandboxSession claim.
             # Same source (.Values.workspaceImage) as the XRD/composition defaults.
             - name: WORKSPACE_IMAGE
@@ -76,6 +93,31 @@ spec:
               value: {{ .Values.pool.maxWarmAgeHours | quote }}
             - name: POOL_RESYNC_SECONDS
               value: {{ .Values.pool.resyncSeconds | quote }}
+            # --- Redis-backed assign queue / horizontal scaling ---
+            # (backend/docs/redis-queue-horizontal-scaling.md). REDIS_ADDR
+            # empty = in-memory queue, valid only at 1 replica (guarded above).
+            {{- if $redisAddr }}
+            - name: REDIS_ADDR
+              value: {{ $redisAddr | quote }}
+            - name: REDIS_DB
+              value: {{ .Values.redis.db | quote }}
+            - name: REDIS_KEY_PREFIX
+              value: {{ .Values.redis.keyPrefix | quote }}
+            - name: REDIS_DIAL_TIMEOUT_SECONDS
+              value: {{ .Values.redis.dialTimeoutSeconds | quote }}
+            - name: QUEUE_MAX_WAIT_MINUTES
+              value: {{ .Values.queue.maxWaitMinutes | quote }}
+            {{- if .Values.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: redis-password
+            {{- end }}
+            {{- end }}
+            # Lease-gated pool reconcile (exactly one active reconciler).
+            - name: LEADER_ELECTION
+              value: {{ .Values.leaderElection.enabled | quote }}
             # --- Guided challenges (docs/history/challenges-backend-architecture.md) ---
             - name: CHALLENGES_ENABLED
               value: {{ .Values.challenges.enabled | quote }}
@@ -103,10 +145,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.telemetry.otlpEndpoint | quote }}
             - name: OTEL_EXPORTER_OTLP_PROTOCOL
