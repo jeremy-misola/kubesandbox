@@ -1,10 +1,14 @@
 # KubeSandbox — Platform Limitations & the Challenges-Content Decision
 
 **Status:** decision memo (2026-07-04). Historical record — revisit if the vcluster
-sync/node config changes (see §2, "fixable" column).
+sync/node config changes (see §2, "fixable" column). The internal feasibility
+spike this memo cites has since been retired (superseded by this memo and by
+[`challenges-backend-architecture.md`](./challenges-backend-architecture.md));
+its classification is summarized in §5 below.
 **Audience:** Jeremy (platform owner)
-**Related:** [`challenges-feasibility-spike.md`](./challenges-feasibility-spike.md) ·
-[`docs/challenges.md`](../challenges.md) · [`reference/backend-architecture.md`](../reference/backend-architecture.md)
+**Related:** [`challenge-scenario-catalog.md`](../reference/challenge-scenario-catalog.md) ·
+[`challenges-backend-architecture.md`](./challenges-backend-architecture.md) ·
+[`../reference/backend-architecture.md`](../reference/backend-architecture.md)
 
 > **Decision: yes, build the challenge content — but scope it deliberately.**
 > KubeSandbox cannot and should not try to be a cluster-administration trainer
@@ -109,7 +113,9 @@ in the same form.
 ## 5. Decision
 
 **Worth it — with scope discipline.** Cross-referencing the classification in
-`challenges-feasibility-spike.md`: roughly 70% of a realistic Kubernetes
+the internal feasibility spike (retired; its scenario list lives on in
+[`challenge-scenario-catalog.md`](../reference/challenge-scenario-catalog.md)):
+roughly 70% of a realistic Kubernetes
 challenge catalog (RBAC, policy, workloads, troubleshooting, debugging, resource
 management) runs correctly on KubeSandbox as-is or with the fixes already
 identified. That 70% is also, not coincidentally, the content that maps to

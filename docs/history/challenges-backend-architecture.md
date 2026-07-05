@@ -1,13 +1,17 @@
 # KubeSandbox — Guided Challenges: Backend Architecture
 
-**Status:** proposed design (2026-07-04) — resolves the open questions in
-[`challenge-seeding-design-note.md`](./challenge-seeding-design-note.md); not yet implemented.
+**Status:** backend implemented and live-verified (2026-07-05) — see
+[`challenges-backend-handoff.md`](./challenges-backend-handoff.md) for the
+as-built record and residual fixes; **frontend (§13 item 6) not yet built.**
+Originally proposed 2026-07-04, resolving the open questions in
+[`challenge-seeding-design-note.md`](./challenge-seeding-design-note.md).
 **Audience:** Jeremy (platform owner) + future maintainers
 **Related:** [`platform-limitations-and-challenges-decision.md`](./platform-limitations-and-challenges-decision.md) ·
 [`challenge-seeding-design-note.md`](./challenge-seeding-design-note.md) ·
+[`challenges-backend-handoff.md`](./challenges-backend-handoff.md) ·
 [`../reference/backend-architecture.md`](../reference/backend-architecture.md) ·
 [`../reference/hot-pool-design.md`](../reference/hot-pool-design.md) ·
-[`../challenges.md`](../challenges.md)
+[`../reference/challenge-scenario-catalog.md`](../reference/challenge-scenario-catalog.md)
 
 > **TL;DR:** Challenges are self-contained **bundles** (metadata + seed
 > manifests + declarative validation checks) authored as directories in git,
@@ -33,7 +37,7 @@
 **Content scope** (per the decision memo): the ~70% bucket — RBAC,
 NetworkPolicy, ConfigMaps/Secrets, Deployments/StatefulSets, probes, QoS,
 resource management, scheduling-within-one-node, debugging/troubleshooting.
-Everything CKAD/KCNA-shaped in [`challenges.md`](../challenges.md). Permanently
+Everything CKAD/KCNA-shaped in [`challenge-scenario-catalog.md`](../reference/challenge-scenario-catalog.md). Permanently
 out: kubeadm, real/multi-node scheduling, static pods, storage operators, host
 namespaces. Two composition fixes this depends on are **already live**:
 NetworkPolicy `sync.toHost` (policy challenges actually enforce) and

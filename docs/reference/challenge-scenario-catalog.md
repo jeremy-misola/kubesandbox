@@ -1,4 +1,14 @@
-# iximiuz Lab Scenarios
+# KubeSandbox — Challenge Scenario Catalog (iximiuz Lab Scrape)
+
+**What this is:** raw source material — scenario names, titles, and
+descriptions scraped from iximiuz-style Kubernetes labs — used as the input
+list for classifying and scoping the guided-challenges content decision.
+**Related:** [`../history/platform-limitations-and-challenges-decision.md`](../history/platform-limitations-and-challenges-decision.md)
+(classifies these against the vcluster model) ·
+[`../history/challenges-backend-architecture.md`](../history/challenges-backend-architecture.md)
+(§1 scope, §4 bundle format for the ones actually built).
+**Note:** this is a data appendix, not authored prose — not all scenarios
+listed here are in scope or built; see the decision doc for what's in/out.
 
 | Name | Title | Description |
 |------|-------|-------------|

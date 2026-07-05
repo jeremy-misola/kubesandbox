@@ -1,8 +1,20 @@
-# Guided Challenges Backend — Implementation Handoff
+# KubeSandbox — Guided Challenges Backend: Implementation Handoff
 
 **Date:** 2026-07-05 (late evening session, 2026-07-04 → 05)
+**Audience:** whoever picks up the challenges frontend or ops next (incl. future me)
+**Related:** [`challenges-backend-architecture.md`](./challenges-backend-architecture.md) ·
+[`challenge-seeding-design-note.md`](./challenge-seeding-design-note.md) ·
+[`../reference/backend-architecture.md`](../reference/backend-architecture.md)
+**Full revision history:** [`../../CHANGELOG.md`](../../CHANGELOG.md)
+
+> **Update.** Items 2 and 3 in §4 ("Needs a second deploy" — the
+> `ReassignForRecycle` recycle-window guards and reset-flag durability fix) are
+> present in the current working tree (the "add guardrails" commit). This
+> doc's deploy/verification status otherwise reflects the session it was
+> written in and hasn't been re-checked against prod-k3s since.
+
 **Scope:** full backend implementation of
-[`docs/history/challenges-backend-architecture.md`](docs/history/challenges-backend-architecture.md)
+[`challenges-backend-architecture.md`](./challenges-backend-architecture.md)
 (§13 items 0–5 + tests; frontend item 6 intentionally out of scope).
 **Status:** implemented, unit/race-tested, deployed once to prod-k3s, and
 live-verified through most of the §13.7 checklist. **Three fixes made after

@@ -1,3 +1,16 @@
+# KubeSandbox — Guided Challenges: Seeding Design Note
+
+**Status:** resolved (2026-07-04) — the seed-at-assignment resolution below
+was adopted in [`challenges-backend-architecture.md`](./challenges-backend-architecture.md),
+whose backend is now implemented (see [`challenges-backend-handoff.md`](./challenges-backend-handoff.md)).
+Historical record; not itself maintained against the current code.
+**Audience:** Jeremy (platform owner) + future maintainers
+**Related:** [`platform-limitations-and-challenges-decision.md`](./platform-limitations-and-challenges-decision.md) ·
+[`challenges-backend-architecture.md`](./challenges-backend-architecture.md) ·
+[`../reference/hot-pool-design.md`](../reference/hot-pool-design.md)
+
+---
+
 > **TL;DR:** Guided challenges need every session to start from
 > challenge-specific state (a broken ConfigMap, a default-deny NetworkPolicy,
 > etc.), but the hot pool only works because every warm member is **identical
