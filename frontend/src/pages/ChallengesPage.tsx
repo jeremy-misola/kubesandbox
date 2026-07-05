@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { ChallengeCard } from "@/components/ChallengeCard";
 import { useChallenges } from "@/hooks/useChallenges";
+import { useReveal } from "@/hooks/useReveal";
 import { cn } from "@/lib/utils";
 import type { ChallengeMeta } from "@/lib/schemas";
 
@@ -39,7 +40,7 @@ function FilterRow({
         type="button"
         onClick={() => onSelect(value)}
         className={cn(
-          "border-b py-1 font-mono text-[11px] uppercase tracking-label transition-colors duration-500 ease-luxury",
+          "overline border-b py-1 transition-colors duration-500 ease-luxury",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
           isActive
             ? "border-accent text-foreground"
@@ -53,9 +54,7 @@ function FilterRow({
 
   return (
     <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
-      <span className="font-mono text-[10px] uppercase tracking-overline text-muted-foreground">
-        {label}
-      </span>
+      <span className="overline text-muted-foreground">{label}</span>
       {render("", "All")}
       {options.map((o) => render(o, o))}
     </div>
@@ -129,12 +128,13 @@ export function ChallengesPage() {
   const catalogEmpty = !isLoading && !isError && (data?.length ?? 0) === 0;
   const noMatch = !catalogEmpty && !isLoading && !isError && shown.length === 0;
 
+  // Cards lift in, staggered, whenever the visible set changes (load + filter).
+  const gridRef = useReveal<HTMLDivElement>([shown.length]);
+
   return (
     <div>
-      <div className="mb-10">
-        <p className="font-mono text-[11px] uppercase tracking-label text-accent">
-          ~/challenges
-        </p>
+      <div className="reveal-up mb-10">
+        <p className="overline text-accent">~/challenges</p>
         <h1 className="mt-2 font-display text-4xl font-normal tracking-tight md:text-5xl">
           Guided <span className="italic text-accent">Challenges</span>
         </h1>
@@ -145,7 +145,10 @@ export function ChallengesPage() {
       </div>
 
       {!isLoading && !isError && !catalogEmpty && (
-        <div className="mb-8 flex flex-col gap-4 border-y border-border/60 py-5">
+        <div
+          className="reveal-up mb-8 flex flex-col gap-4 border-y border-border/60 py-5"
+          style={{ animationDelay: "90ms" }}
+        >
           {categories.length > 1 && (
             <FilterRow
               label="Category"
@@ -218,7 +221,10 @@ export function ChallengesPage() {
       )}
 
       {!isLoading && !isError && shown.length > 0 && (
-        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          ref={gridRef}
+          className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3"
+        >
           {shown.map((meta) => (
             <ChallengeCard key={meta.id} meta={meta} />
           ))}

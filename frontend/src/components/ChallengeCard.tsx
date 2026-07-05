@@ -35,9 +35,7 @@ export function ChallengeCard({ meta }: { meta: ChallengeMeta }) {
       className="group block focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
     >
       <Card className="flex h-full flex-col p-6">
-        <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-          {meta.category}
-        </p>
+        <p className="overline text-muted-foreground">{meta.category}</p>
         <h3 className="mt-3 font-display text-2xl font-normal leading-tight tracking-tight transition-colors duration-500 ease-luxury group-hover:text-accent">
           {meta.title}
         </h3>
@@ -45,7 +43,7 @@ export function ChallengeCard({ meta }: { meta: ChallengeMeta }) {
           {meta.description}
         </p>
 
-        <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-5 font-mono text-[10px] uppercase tracking-label text-muted-foreground">
+        <div className="overline-xs mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-5 text-muted-foreground">
           <span className={cn("border px-2 py-0.5", difficultyTone(meta.difficulty))}>
             {meta.difficulty}
           </span>

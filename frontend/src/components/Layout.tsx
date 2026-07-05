@@ -54,7 +54,7 @@ export function Layout({ children }: { children: ReactNode }) {
             className="group flex items-center gap-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
             <BrandMark />
-            <span className="text-xs font-medium uppercase tracking-label transition-colors duration-500 ease-luxury group-hover:text-accent">
+            <span className="overline transition-colors duration-500 ease-luxury group-hover:text-accent">
               Kubesandbox
             </span>
           </Link>
@@ -72,7 +72,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <Link
                 to="/dashboard"
                 className={cn(
-                  "text-[11px] uppercase tracking-label transition-colors duration-500 ease-luxury",
+                  "overline transition-colors duration-500 ease-luxury",
                   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
                   pathname.startsWith("/dashboard")
                     ? "text-foreground"
@@ -84,7 +84,7 @@ export function Layout({ children }: { children: ReactNode }) {
               <Link
                 to="/challenges"
                 className={cn(
-                  "text-[11px] uppercase tracking-label transition-colors duration-500 ease-luxury",
+                  "overline transition-colors duration-500 ease-luxury",
                   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
                   pathname.startsWith("/challenges")
                     ? "text-foreground"
@@ -123,10 +123,10 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <footer className="relative z-10 border-t border-border/20 py-8">
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-2 px-6 md:flex-row md:items-center md:justify-between md:px-12">
-          <p className="text-[10px] uppercase tracking-label text-muted-foreground">
+          <p className="overline-xs text-muted-foreground">
             Sandboxes are ephemeral — everything is deleted when the timer runs out.
           </p>
-          <p className="text-[10px] uppercase tracking-overline text-muted-foreground/70">
+          <p className="overline-xs text-muted-foreground">
             Kubesandbox — Vol. 01
           </p>
         </div>

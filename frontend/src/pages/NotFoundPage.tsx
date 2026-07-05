@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export function NotFoundPage() {
   return (
     <div className="flex min-h-[55vh] flex-col items-center justify-center text-center">
-      <p className="font-mono text-xs uppercase tracking-label text-muted-foreground">
+      <p className="overline text-muted-foreground">
         <span className="text-accent">❯</span> kubectl get page
       </p>
       <h1 className="mt-4 font-display text-8xl font-normal italic tracking-tight text-accent">
@@ -17,7 +17,7 @@ export function NotFoundPage() {
       </p>
       <Link
         to="/"
-        className="mt-8 font-mono text-xs uppercase tracking-label text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+        className="overline mt-8 text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
       >
         ← go home
       </Link>

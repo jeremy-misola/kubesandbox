@@ -123,6 +123,51 @@
 @layer components {
   /* ————— Editorial signatures ————— */
 
+  /* The house label / overline. One treatment for every small uppercase mono
+     label site-wide (categories, filters, section titles, metadata, badges).
+     Medium weight at 11px reads crisp instead of slim; tracking is tightened
+     from the old 0.25–0.3em so wide-set caps stay legible. Color is left to the
+     caller (text-muted-foreground, text-accent, …). */
+  .overline {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-weight: 500;
+    font-size: 0.6875rem; /* 11px */
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+  }
+  /* A slightly smaller sibling for dense metadata rows that must stay compact. */
+  .overline-xs {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    font-weight: 500;
+    font-size: 0.625rem; /* 10px */
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+  }
+
+  /* One-shot entrance: a gentle fade + lift on mount. Used for page headers and
+     static blocks; anime.js handles the staggered card/list reveals. Slow,
+     cinematic easing per the system. Honors reduced-motion. */
+  @keyframes reveal-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .reveal-up {
+    animation: reveal-up 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal-up {
+      animation: none;
+    }
+  }
+
   /* Paper grain: a near-invisible fractal-noise overlay that lends the page a
      tactile "expensive paper" quality. Fixed, non-interactive, ~2.5% opacity. */
   .paper-noise {

@@ -38,7 +38,7 @@ export function SessionCard({ session }: { session: Session }) {
 
         {/* Dashboard awareness only: this session is a guided challenge. */}
         {session.challenge && (
-          <span className="inline-flex w-fit items-center gap-1.5 border border-accent/30 bg-accent/5 px-2 py-0.5 font-mono text-[10px] uppercase tracking-label text-accent">
+          <span className="overline-xs inline-flex w-fit items-center gap-1.5 border border-accent/30 bg-accent/5 px-2 py-0.5 text-accent">
             <i aria-hidden className="h-1 w-1 rounded-full bg-accent" />
             {session.challenge.title ?? "Challenge"}
           </span>
@@ -53,9 +53,7 @@ export function SessionCard({ session }: { session: Session }) {
             ] as const
           ).map(([k, v]) => (
             <div key={k} className="bg-card px-2.5 py-1.5">
-              <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                {k}
-              </dt>
+              <dt className="overline-xs text-muted-foreground">{k}</dt>
               <dd className="mt-0.5 text-foreground">{v}</dd>
             </div>
           ))}

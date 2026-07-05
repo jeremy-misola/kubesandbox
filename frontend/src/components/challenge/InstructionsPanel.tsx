@@ -60,7 +60,7 @@ export function InstructionsPanel({
   return (
     <div className="space-y-8">
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-label text-accent">
+        <p className="overline text-accent">
           {data.category}
           <span className="ml-2 text-muted-foreground">
             {data.difficulty}
@@ -73,9 +73,7 @@ export function InstructionsPanel({
       </div>
 
       <div>
-        <p className="mb-2 font-mono text-[10px] uppercase tracking-label text-muted-foreground">
-          Steps
-        </p>
+        <p className="overline mb-2 text-muted-foreground">Steps</p>
         <StepList steps={data.steps} results={gradeSteps} />
       </div>
 

@@ -8,6 +8,7 @@ import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { HintReveal } from "@/components/challenge/HintReveal";
 import { StepList } from "@/components/challenge/StepList";
 import { useChallenge, useRevealedHints } from "@/hooks/useChallenges";
+import { useReveal } from "@/hooks/useReveal";
 import {
   useCreateSession,
   useDeleteSession,
@@ -36,7 +37,7 @@ function difficultyTone(difficulty: string): string {
 const backLink = (
   <Link
     to="/challenges"
-    className="font-mono text-[11px] uppercase tracking-label text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+    className="overline text-muted-foreground transition-colors duration-500 ease-luxury hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
   >
     ← challenges
   </Link>
@@ -49,6 +50,9 @@ export function ChallengeDetailPage() {
 
   const [revealed, reveal] = useRevealedHints(id);
   const { data, isLoading, isError, refetch } = useChallenge(id, revealed);
+
+  // Stagger the intro (category → title → meta → description) in on load.
+  const introRef = useReveal<HTMLDivElement>([data?.id]);
 
   const { data: sessions } = useSessions();
   const existing = sessions?.[0];
@@ -152,33 +156,31 @@ export function ChallengeDetailPage() {
     <div className="max-w-4xl">
       <div className="pb-6">{backLink}</div>
 
-      <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-        {data.category}
-      </p>
-      <h1 className="mt-3 font-display text-4xl font-normal leading-tight tracking-tight">
-        {data.title}
-      </h1>
+      <div ref={introRef}>
+        <p className="overline text-muted-foreground">{data.category}</p>
+        <h1 className="mt-3 font-display text-4xl font-normal leading-tight tracking-tight">
+          {data.title}
+        </h1>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] uppercase tracking-label text-muted-foreground">
-        <span className={cn("border px-2 py-0.5", difficultyTone(data.difficulty))}>
-          {data.difficulty}
-        </span>
-        {data.estMinutes > 0 && <span>· {data.estMinutes} min</span>}
-        {data.tags.length > 0 && (
-          <span className="tracking-normal text-muted-foreground">
-            · {data.tags.join(" · ")}
+        <div className="overline-xs mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+          <span className={cn("border px-2 py-0.5", difficultyTone(data.difficulty))}>
+            {data.difficulty}
           </span>
-        )}
+          {data.estMinutes > 0 && <span>· {data.estMinutes} min</span>}
+          {data.tags.length > 0 && (
+            <span className="tracking-normal text-muted-foreground">
+              · {data.tags.join(" · ")}
+            </span>
+          )}
+        </div>
+
+        <p className="mt-6 text-base leading-relaxed text-foreground/90">
+          {data.description}
+        </p>
       </div>
 
-      <p className="mt-6 text-base leading-relaxed text-foreground/90">
-        {data.description}
-      </p>
-
       <section className="mt-10">
-        <p className="mb-3 font-mono text-[10px] uppercase tracking-label text-muted-foreground">
-          Steps
-        </p>
+        <p className="overline mb-3 text-muted-foreground">Steps</p>
         <StepList steps={data.steps} />
       </section>
 

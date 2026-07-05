@@ -69,18 +69,16 @@ export function DashboardPage() {
     <div>
       <div className="mb-10 flex items-center gap-4">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-label text-accent">
-            ~/dashboard
-          </p>
+          <p className="overline text-accent">~/dashboard</p>
           <h1 className="mt-2 font-display text-4xl font-normal tracking-tight">
             Your sandbox
             {session && (
-              <span className="ml-3 align-middle font-mono text-xs font-normal uppercase tracking-label text-muted-foreground">
+              <span className="overline ml-3 align-middle text-muted-foreground">
                 [active]
               </span>
             )}
             {!session && queued && (
-              <span className="ml-3 align-middle font-mono text-xs font-normal uppercase tracking-label text-warning">
+              <span className="overline ml-3 align-middle text-warning">
                 [in line]
               </span>
             )}

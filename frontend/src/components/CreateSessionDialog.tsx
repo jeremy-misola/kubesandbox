@@ -92,9 +92,7 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
               ] as const
             ).map(([k, v]) => (
               <div key={k} className="bg-card px-2.5 py-1.5">
-                <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                  {k}
-                </dt>
+                <dt className="overline-xs text-muted-foreground">{k}</dt>
                 <dd className="mt-0.5 text-foreground">{v}</dd>
               </div>
             ))}
@@ -103,7 +101,7 @@ export function CreateSessionDialog({ onClose }: { onClose: () => void }) {
           <div className="mb-2 mt-5 flex items-baseline justify-between">
             <label
               htmlFor="ttl-slider"
-              className="font-mono text-[11px] uppercase tracking-label text-muted-foreground"
+              className="overline text-muted-foreground"
             >
               Lifetime
             </label>

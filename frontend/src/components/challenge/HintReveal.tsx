@@ -21,7 +21,7 @@ export function HintReveal({
 
   return (
     <div>
-      <p className="mb-2 font-mono text-[10px] uppercase tracking-label text-muted-foreground">
+      <p className="overline mb-2 text-muted-foreground">
         Hints
         <span className="ml-2 text-muted-foreground">
           {Math.min(revealed, hintsTotal)}/{hintsTotal}
@@ -51,7 +51,7 @@ export function HintReveal({
                   onClick={onReveal}
                   className={cn(
                     "group inline-flex items-center gap-2 border-l border-border py-0.5 pl-3",
-                    "font-mono text-xs uppercase tracking-label text-accent",
+                    "overline text-accent",
                     "transition-colors duration-500 ease-luxury hover:border-accent",
                     "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
                   )}
