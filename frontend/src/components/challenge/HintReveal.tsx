@@ -67,7 +67,7 @@ export function HintReveal({
           return (
             <li
               key={i}
-              className="border-l border-border py-1 pl-3 font-mono text-xs text-muted-foreground/80"
+              className="border-l border-border py-1 pl-3 text-xs text-muted-foreground/80"
             >
               Hint {i + 1} — hidden
             </li>

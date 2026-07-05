@@ -100,7 +100,7 @@ export function DashboardPage() {
               {error instanceof Error ? `: ${error.message}` : ""}.
             </p>
             <button
-              className="mt-2 font-mono text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="mt-2 text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               onClick={() => refetch()}
             >
               retry →
@@ -120,7 +120,7 @@ export function DashboardPage() {
         <Card className="overflow-hidden p-0">
           <TerminalChrome title="kubesandbox — empty" />
           <div className="px-6 py-16 text-center">
-            <p className="font-mono text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               <span className="text-accent">❯</span> kubesandbox status
               <br />
               <span className="text-muted-foreground/70">
@@ -138,7 +138,7 @@ export function DashboardPage() {
             <Button className="mt-6" onClick={() => setCreating(true)}>
               Create your sandbox
             </Button>
-            <p className="mt-3 font-mono text-xs text-muted-foreground/70">
+            <p className="mt-3 text-xs text-muted-foreground/70">
               pre-provisioned &amp; ready in seconds
             </p>
           </div>
@@ -150,7 +150,7 @@ export function DashboardPage() {
           <div ref={cardRef}>
             <SessionCard session={session} />
           </div>
-          <p className="mt-3 text-center font-mono text-xs text-muted-foreground">
+          <p className="mt-3 text-center text-xs text-muted-foreground">
             one sandbox per user — delete this one to start fresh
           </p>
         </div>

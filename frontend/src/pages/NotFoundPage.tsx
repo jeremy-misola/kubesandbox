@@ -9,7 +9,7 @@ export function NotFoundPage() {
       <h1 className="mt-4 font-display text-8xl font-normal italic tracking-tight text-accent">
         404
       </h1>
-      <p className="mt-3 font-mono text-sm text-muted-foreground">
+      <p className="mt-3 text-sm text-muted-foreground">
         Error from server (NotFound): page not found
       </p>
       <p className="mt-2 max-w-sm text-sm font-light text-muted-foreground">

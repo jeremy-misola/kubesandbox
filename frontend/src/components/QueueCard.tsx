@@ -40,7 +40,7 @@ export function QueueCard({ queue }: { queue: QueueStatus }) {
       </TerminalChrome>
 
       <div className="px-6 py-10 text-center" role="status" aria-live="polite">
-        <p className="font-mono text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           <span className="text-accent">❯</span> kubesandbox create
           <br />
           <span className="text-muted-foreground/70">

@@ -14,7 +14,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
           aria-hidden
           className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary"
         />
-        <p className="font-mono text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           checking credentials…
         </p>
       </div>

@@ -4,19 +4,20 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { ChallengeMeta } from "@/lib/schemas";
 
-/** Difficulty tint in the StatusBadge visual idiom (success/warning/danger for
- *  easy/medium/hard) but static — it is NOT a StatusBadge, which is
- *  semantically a live session indicator (design §6.2). */
+/** Difficulty is metadata, not status, so it stays monochrome — a quiet neutral
+ *  scale where only the hardest tier earns the gold accent. Keeping green/amber
+ *  out preserves gold as the sole accent (design §accent discipline). This is
+ *  NOT a StatusBadge, which is a live session indicator (design §6.2). */
 function difficultyTone(difficulty: string): string {
   switch (difficulty.toLowerCase()) {
     case "easy":
-      return "border-success/30 bg-success/10 text-success";
+      return "border-border bg-muted/40 text-muted-foreground";
     case "medium":
-      return "border-warning/30 bg-warning/10 text-warning";
+      return "border-border bg-muted/40 text-foreground/90";
     case "hard":
-      return "border-danger/30 bg-danger/10 text-danger";
+      return "border-accent/40 bg-accent/10 text-accent";
     default:
-      return "border-border bg-muted text-muted-foreground";
+      return "border-border bg-muted/40 text-muted-foreground";
   }
 }
 

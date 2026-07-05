@@ -21,16 +21,18 @@ import { TTL, type CreateSessionResult } from "@/lib/schemas";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Difficulty is metadata, not status: a quiet monochrome scale where only the
+// hardest tier earns the gold accent, keeping gold as the sole accent.
 function difficultyTone(difficulty: string): string {
   switch (difficulty.toLowerCase()) {
     case "easy":
-      return "border-success/30 bg-success/10 text-success";
+      return "border-border bg-muted/40 text-muted-foreground";
     case "medium":
-      return "border-warning/30 bg-warning/10 text-warning";
+      return "border-border bg-muted/40 text-foreground/90";
     case "hard":
-      return "border-danger/30 bg-danger/10 text-danger";
+      return "border-accent/40 bg-accent/10 text-accent";
     default:
-      return "border-border bg-muted text-muted-foreground";
+      return "border-border bg-muted/40 text-muted-foreground";
   }
 }
 
@@ -141,7 +143,7 @@ export function ChallengeDetailPage() {
           <div className="p-6 text-sm">
             <p className="text-danger">Couldn't load this challenge.</p>
             <button
-              className="mt-2 font-mono text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="mt-2 text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               onClick={() => refetch()}
             >
               retry →

@@ -174,7 +174,7 @@ export function ChallengesPage() {
           <div className="p-6 text-sm">
             <p className="text-danger">Couldn't load the challenge catalog.</p>
             <button
-              className="mt-2 font-mono text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="mt-2 text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               onClick={() => refetch()}
             >
               retry →
@@ -186,7 +186,7 @@ export function ChallengesPage() {
       {catalogEmpty && (
         <Card className="overflow-hidden p-0">
           <div className="px-6 py-16 text-center">
-            <p className="font-mono text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               <span className="text-accent">❯</span> no challenges published
               <br />
               <span className="text-muted-foreground/70">
@@ -204,7 +204,7 @@ export function ChallengesPage() {
               No challenges match these filters.
             </p>
             <button
-              className="mt-3 font-mono text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="mt-3 text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               onClick={() => setParams({}, { replace: true })}
             >
               clear filters →

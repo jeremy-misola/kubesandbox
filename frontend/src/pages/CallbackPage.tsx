@@ -41,7 +41,7 @@ export function CallbackPage() {
             aria-hidden
             className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-accent"
           />
-          <p className="font-mono text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             completing sign-in…
           </p>
         </div>

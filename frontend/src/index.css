@@ -16,24 +16,32 @@
                       charcoal ink, gold accent.
 
      Never pure black / pure white: charcoal #1A1A1A and alabaster #F9F8F6.
-     Gold #D4AF37 is an accent only — hover, focus, emphasis.
+
+     Accent discipline: gold #D4AF37 is the SOLE accent — hover, focus, emphasis,
+     and every positive/active/attention state (ready, connected, provisioning).
+     `--success` and `--warning` therefore resolve to gold; they survive only as
+     semantic aliases so component call-sites stay readable. The one permitted
+     non-gold hue is `--danger` (red), reserved strictly for errors and
+     destructive actions — a functional signal, not a decorative accent. Mono is
+     confined to the terminal and literal code/data readouts; all UI chrome and
+     labels are Inter.
      ───────────────────────────────────────────────────────────── */
 
   :root {
     /* Default to the dark interior palette (html carries .dark). */
     --background: 0 0% 10%;
     --foreground: 40 20% 97%;
-    --card: 40 4% 12%;
+    --card: 40 4% 13.5%;
     --card-foreground: 40 20% 97%;
     --primary: 40 20% 97%;
     --primary-foreground: 0 0% 10%;
     --muted: 40 6% 16%;
     --muted-foreground: 40 9% 74%;
-    --border: 40 10% 34%;
+    --border: 40 9% 42%;
     --accent: 46 65% 52%;
     --accent-foreground: 0 0% 100%;
-    --success: 150 30% 48%;
-    --warning: 42 60% 55%;
+    --success: 46 65% 52%; /* alias → gold (sole accent) */
+    --warning: 46 65% 52%; /* alias → gold (sole accent) */
     --danger: 6 55% 55%;
   }
 
@@ -41,17 +49,17 @@
   .dark {
     --background: 0 0% 10%;
     --foreground: 40 20% 97%;
-    --card: 40 4% 12%;
+    --card: 40 4% 13.5%;
     --card-foreground: 40 20% 97%;
     --primary: 40 20% 97%;
     --primary-foreground: 0 0% 10%;
     --muted: 40 6% 16%;
     --muted-foreground: 40 9% 74%;
-    --border: 40 10% 34%;
+    --border: 40 9% 42%;
     --accent: 46 65% 52%;
     --accent-foreground: 0 0% 100%;
-    --success: 150 30% 48%;
-    --warning: 42 60% 55%;
+    --success: 46 65% 52%; /* alias → gold (sole accent) */
+    --warning: 46 65% 52%; /* alias → gold (sole accent) */
     --danger: 6 55% 55%;
   }
 
@@ -69,13 +77,13 @@
     --border: 0 0% 10%;
     --accent: 46 65% 52%;
     --accent-foreground: 0 0% 100%;
-    --success: 150 28% 38%;
-    --warning: 40 55% 45%;
+    --success: 43 74% 38%; /* alias → gold, darkened for contrast on paper */
+    --warning: 43 74% 38%; /* alias → gold, darkened for contrast on paper */
     --danger: 6 55% 48%;
   }
 
   * {
-    border-color: hsl(var(--border) / 0.18);
+    border-color: hsl(var(--border) / 0.22);
   }
 
   html {
@@ -123,27 +131,29 @@
 @layer components {
   /* ————— Editorial signatures ————— */
 
-  /* The house label. One treatment for every small uppercase mono label
-     site-wide (categories, section titles, metadata, badges). Named `.eyebrow`
-     deliberately — NOT `.overline`, which collides with Tailwind's
-     text-decoration utility and draws a literal rule above the text. Original
-     editorial weight/tracking; color is left to the caller. */
+  /* The house label. One treatment for every small uppercase label site-wide
+     (categories, section titles, metadata, badges). Set in Inter, not mono:
+     mono is confined to the terminal and literal code/data readouts, so the UI
+     chrome reads as one editorial voice. Uppercase + wide tracking + medium
+     weight carry the label feel. Named `.eyebrow` deliberately — NOT
+     `.overline`, which collides with Tailwind's text-decoration utility and
+     draws a literal rule above the text. Color is left to the caller. */
   .eyebrow {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-    font-weight: 400;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 500;
     font-size: 0.6875rem; /* 11px */
     line-height: 1.2;
     text-transform: uppercase;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.2em;
   }
   /* A slightly smaller sibling for dense metadata rows that must stay compact. */
   .eyebrow-xs {
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-    font-weight: 400;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 500;
     font-size: 0.625rem; /* 10px */
     line-height: 1.2;
     text-transform: uppercase;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.18em;
   }
 
   /* One-shot entrance: a gentle fade + lift on mount. Used for page headers and

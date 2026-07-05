@@ -48,7 +48,7 @@ export function InstructionsPanel({
       <div className="border border-danger/30 bg-danger/5 p-4 text-sm">
         <p className="text-danger">Couldn't load the challenge instructions.</p>
         <button
-          className="mt-2 font-mono text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          className="mt-2 text-xs text-accent underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           onClick={() => refetch()}
         >
           retry →
