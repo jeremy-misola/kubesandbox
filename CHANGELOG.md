@@ -8,6 +8,40 @@ today. Newest first.
 
 ---
 
+## rev 28 — 2026-07-04 — Grafana dashboard: fix panel duplication from per-replica `service.instance.id` labels
+
+The Grafana dashboard imported in rev 23/24 had panels duplicating every
+statistic — each metric series carries a `service.instance.id` label (set to
+the pod name via the downward API), so a single-replica backend emits two
+series per metric (one for the current pod, one for the previous pod before
+its last restart). Panels that didn't aggregate across the label showed
+duplicate lines, inflated counts, and misleading quantiles.
+
+Fixed by modifying the dashboard's PromQL queries to aggregate away
+`service.instance.id` (and any other per-replica labels) using `sum by (...)`,
+`avg by (...)`, or `max by (...)` as appropriate for each panel's semantics:
+- Gauge panels (pool state, queue depth, SSE streams) use `max by (...)` so
+  overlapping pod lifetimes don't double-count.
+- Rate/counter panels (request rate, claim throughput, error ratio) use
+  `sum by (...)` — rates from two pods covering the same time window are
+  additive.
+- Histogram quantile panels (latency, provision duration, queue wait) use
+  `histogram_quantile(…, sum by (le, …) (…))` — quantiles must be computed
+  after summing bucket counts across instances, not before.
+- The infra cross-check row (kube-state-metrics) was unaffected (those series
+  don't carry `service.instance.id`).
+
+The cleaned dashboard JSON was re-exported from Grafana (stripped of
+live-instance metadata: `uid`, `resourceVersion`, `generation`,
+`createdBy`/`updatedBy` user hashes, `namespace`) and committed to
+`kubesandbox-charts/kubesandbox-backend/dashboards/kubesandbox-backend-pool.json`.
+The dashboard is now reproducible from the chart and ready for sidecar-based
+provisioning.
+
+Files: `kubesandbox-charts/kubesandbox-backend/dashboards/kubesandbox-backend-pool.json`.
+
+---
+
 ## rev 27 — 2026-07-04 — Guided challenges: backend (content pipeline, seeder, grader, API)
 
 Implements `docs/history/challenges-backend-architecture.md` end to end,

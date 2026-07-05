@@ -15,6 +15,7 @@ system got here and are not maintained against the current code.
 | [`reference/hot-pool-design.md`](./reference/hot-pool-design.md) | The as-built hot warm-pool: warm members, assignment, one-per-user markers, queue, TTL, cold-path measurements, pool sizing & the control-plane ceiling. |
 | [`reference/observability-architecture.md`](./reference/observability-architecture.md) | Metrics: OpenTelemetry Go SDK instrumentation, OTLP → node-local collector → Mimir → Grafana, the metrics catalog, and the "KubeSandbox — Backend & Pool" dashboard. |
 | [`reference/challenge-scenario-catalog.md`](./reference/challenge-scenario-catalog.md) | Data appendix: scraped iximiuz-style scenario list used as the content-scoping input for guided challenges. Not authored prose — see the decision memo in History for what's actually in/out of scope. |
+| [`challenges.md`](./challenges.md) | How guided challenges work end-to-end: authoring, validation, delivery, runtime, check types, authoring constraints, and the `--request-timeout` trap. |
 
 ## History — point-in-time records
 
