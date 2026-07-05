@@ -81,6 +81,18 @@ export function Layout({ children }: { children: ReactNode }) {
               >
                 Dashboard
               </Link>
+              <Link
+                to="/challenges"
+                className={cn(
+                  "text-[11px] uppercase tracking-label transition-colors duration-500 ease-luxury",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                  pathname.startsWith("/challenges")
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-accent",
+                )}
+              >
+                Challenges
+              </Link>
               <span className="hidden items-center gap-2.5 border-l border-border/30 pl-4 sm:flex">
                 <i className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
                 <span className="max-w-[180px] truncate text-[11px] tracking-wide text-muted-foreground">

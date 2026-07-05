@@ -5,6 +5,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LandingPage } from "@/pages/LandingPage";
 import { CallbackPage } from "@/pages/CallbackPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { ChallengesPage } from "@/pages/ChallengesPage";
+import { ChallengeDetailPage } from "@/pages/ChallengeDetailPage";
 import { TerminalPage } from "@/pages/TerminalPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -19,6 +21,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/challenges"
+          element={
+            <ProtectedRoute>
+              <ChallengesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/challenges/:id"
+          element={
+            <ProtectedRoute>
+              <ChallengeDetailPage />
             </ProtectedRoute>
           }
         />
