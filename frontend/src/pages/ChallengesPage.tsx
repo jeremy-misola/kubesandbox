@@ -169,12 +169,6 @@ export function ChallengesPage() {
               onSelect={(v) => setParam("difficulty", v === difficulty ? "" : v)}
             />
           )}
-          <FilterRow
-            label="Sort"
-            options={SORTS.map((s) => s.key)}
-            active={sort}
-            onSelect={(v) => setParam("sort", v || "difficulty")}
-          />
         </div>
       )}
 
