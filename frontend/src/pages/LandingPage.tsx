@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { prefersReducedMotion } from "@/lib/utils";
 
 export function LandingPage() {
-  const { isAuthenticated, loading, user, login } = useAuth();
+  const { isAuthenticated, loading, user, login, signup } = useAuth();
   const location = useLocation();
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
 
@@ -89,8 +89,16 @@ export function LandingPage() {
                 <Button size="lg" disabled={loading} onClick={() => login(returnTo)}>
                   Sign in to begin
                 </Button>
-                <span className="text-xs uppercase tracking-label text-muted-foreground">
+                <span className="flex flex-col gap-1 text-xs uppercase tracking-label text-muted-foreground sm:flex-row sm:items-center sm:gap-3">
                   Single sign-on via Authentik
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => signup()}
+                    className="underline underline-offset-4 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50 sm:before:mr-3 sm:before:content-['·']"
+                  >
+                    New here? Sign up
+                  </button>
                 </span>
               </>
             )}
@@ -168,10 +176,18 @@ export function LandingPage() {
               Sign in and your sandbox is usually handed over the moment you ask
               for it — pre-warmed, isolated, and yours alone.
             </p>
-            <div className="mt-10 flex justify-center">
+            <div className="mt-10 flex flex-col items-center gap-3">
               <Button size="lg" disabled={loading} onClick={() => login(returnTo)}>
                 Sign in to begin
               </Button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => signup()}
+                className="text-xs uppercase tracking-label text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                New here? Sign up
+              </button>
             </div>
           </div>
         </section>

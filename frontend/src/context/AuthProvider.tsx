@@ -8,7 +8,13 @@ import {
 } from "react";
 import type { User } from "oidc-client-ts";
 
-import { login as doLogin, logout as doLogout, subject, userManager } from "@/lib/auth";
+import {
+  login as doLogin,
+  logout as doLogout,
+  signup as doSignup,
+  subject,
+  userManager,
+} from "@/lib/auth";
 import { config } from "@/config";
 
 export interface AuthState {
@@ -19,6 +25,7 @@ export interface AuthState {
   sub?: string;
   login: (targetPath?: string) => Promise<void>;
   logout: () => Promise<void>;
+  signup: () => void;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -87,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((targetPath?: string) => doLogin(targetPath), []);
   const logout = useCallback(() => doLogout(), []);
+  const signup = useCallback(() => doSignup(), []);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -96,8 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sub: subject(user),
       login,
       logout,
+      signup,
     }),
-    [user, loading, login, logout],
+    [user, loading, login, logout, signup],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

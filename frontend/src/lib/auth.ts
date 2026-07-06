@@ -50,6 +50,33 @@ export async function logout(): Promise<void> {
 }
 
 /**
+ * KubeSandbox's own enrollment (Sign up) flow.
+ *
+ * Deliberately NOT wired through Authentik's shared identification stage:
+ * Authentik always routes an unauthenticated OAuth2 authorize request through
+ * the Brand-wide default-authentication-flow, never through a provider's own
+ * "authorization_flow" -- so a per-provider enrollment link never actually
+ * surfaces on that shared screen, and editing the shared stage to add one
+ * doesn't scale (its enrollment_flow field holds exactly one flow, so a
+ * second app doing the same thing collides with this one). Linking directly
+ * to KubeSandbox's enrollment flow from our own UI sidesteps both problems:
+ * it's scoped to us by construction, and every other app can do the same
+ * with its own enrollment flow + its own link with no shared resource to
+ * fight over.
+ *
+ * The enrollment flow's final stage logs the new user into Authentik and
+ * redirects to `next`. We send them back to our own origin rather than
+ * hand-building the OAuth2/PKCE authorize URL here -- they land on "/" and
+ * click "Sign in" once more, which Authentik completes silently (no
+ * identification/password prompt) because they already have a session.
+ */
+export function signup(): void {
+  const authentikOrigin = new URL(config.oidc.issuer).origin;
+  const next = encodeURIComponent(`${window.location.origin}/`);
+  window.location.href = `${authentikOrigin}/if/flow/kubesandbox-enrollment/?next=${next}`;
+}
+
+/**
  * Returns a fresh access token, renewing silently if expired. Throws if the
  * user is not signed in (callers should redirect to login).
  */
