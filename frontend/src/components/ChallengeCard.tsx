@@ -1,25 +1,14 @@
 import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cn, difficultyTone } from "@/lib/utils";
 import type { ChallengeMeta } from "@/lib/schemas";
 
-/** Difficulty is metadata, not status, so it stays monochrome — a quiet neutral
- *  scale where only the hardest tier earns the gold accent. Keeping green/amber
- *  out preserves gold as the sole accent (design §accent discipline). This is
- *  NOT a StatusBadge, which is a live session indicator (design §6.2). */
-function difficultyTone(difficulty: string): string {
-  switch (difficulty.toLowerCase()) {
-    case "easy":
-      return "border-border bg-muted/40 text-muted-foreground";
-    case "medium":
-      return "border-border bg-muted/40 text-foreground/90";
-    case "hard":
-      return "border-accent/40 bg-accent/10 text-accent";
-    default:
-      return "border-border bg-muted/40 text-muted-foreground";
-  }
-}
+// Difficulty is metadata, not status, so it stays monochrome — a quiet neutral
+// scale where only the hardest tier earns the gold accent, preserving gold as
+// the sole accent (design §accent discipline). This is NOT a StatusBadge, which
+// is a live session indicator (design §6.2). The tone scale lives in lib/utils
+// so the catalog card, detail page, and in-session panel all share one copy.
 
 /**
  * Catalog card on the Card primitive with the editorial treatment: category as

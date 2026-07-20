@@ -1,18 +1,22 @@
 import { HintReveal } from "@/components/challenge/HintReveal";
 import { StepList } from "@/components/challenge/StepList";
 import { useChallenge, useRevealedHints } from "@/hooks/useChallenges";
+import { cn, difficultyTone } from "@/lib/utils";
 import type { GradeStep } from "@/lib/schemas";
 
-/** Skeleton mirroring the loaded panel geometry (design-principles §2). */
+/** Skeleton mirroring the loaded panel geometry — header block above a
+ *  divided requirements section (design-principles §2). */
 function InstructionsSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
+    <div className="space-y-10">
+      <div className="space-y-3">
         <div className="skeleton h-3 w-24" />
-        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-5 w-16" />
+        <div className="skeleton mt-4 h-4 w-full" />
         <div className="skeleton h-4 w-5/6" />
       </div>
-      <div className="space-y-3">
+      <div className="space-y-3 border-t border-border/60 pt-8">
+        <div className="skeleton h-3 w-28" />
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex gap-3">
             <div className="skeleton mt-1.5 h-2 w-2 rounded-full" />
@@ -58,31 +62,35 @@ export function InstructionsPanel({
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <p className="eyebrow text-accent">
-          {data.category}
-          <span className="ml-2 text-muted-foreground">
+    <div className="space-y-10">
+      <header>
+        <p className="eyebrow text-accent">{data.category}</p>
+        <div className="eyebrow-xs mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+          <span className={cn("border px-2 py-0.5", difficultyTone(data.difficulty))}>
             {data.difficulty}
-            {data.estMinutes > 0 ? ` · ${data.estMinutes} min` : ""}
           </span>
-        </p>
-        <p className="mt-3 text-sm leading-relaxed text-foreground/90">
+          {data.estMinutes > 0 && <span>· {data.estMinutes} min</span>}
+        </div>
+        <p className="mt-5 text-sm leading-relaxed text-foreground/90">
           {data.description}
         </p>
-      </div>
+      </header>
 
-      <div>
-        <p className="eyebrow mb-2 text-muted-foreground">Steps</p>
+      <section className="border-t border-border/60 pt-8">
+        <p className="eyebrow mb-3 text-muted-foreground">Requirements</p>
         <StepList steps={data.steps} results={gradeSteps} />
-      </div>
+      </section>
 
-      <HintReveal
-        hintsTotal={data.hintsTotal}
-        hints={data.hints}
-        revealed={revealed}
-        onReveal={reveal}
-      />
+      {data.hintsTotal > 0 && (
+        <section className="border-t border-border/60 pt-8">
+          <HintReveal
+            hintsTotal={data.hintsTotal}
+            hints={data.hints}
+            revealed={revealed}
+            onReveal={reveal}
+          />
+        </section>
+      )}
     </div>
   );
 }

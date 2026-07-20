@@ -7,9 +7,9 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { TerminalFrame } from "@/components/TerminalFrame";
 import { useSession } from "@/hooks/useSessions";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
+import { useTimeLeft } from "@/hooks/useTimeLeft";
 import { isTerminalEmbeddable, terminalUrl } from "@/config";
 import { isChallengeSeeded } from "@/lib/schemas";
-import { timeLeft } from "@/lib/utils";
 
 /**
  * Full-page embedded terminal. The ttyd shell renders inside the site via
@@ -26,6 +26,9 @@ export function TerminalPage() {
     id,
     !!session && (!session.workspaceReady || !isChallengeSeeded(session)),
   );
+  // Ticks every second so the header countdown stays live (not frozen at the
+  // value it held when the session data first landed).
+  const left = useTimeLeft(session?.expiresAt);
 
   // Cross-origin terminal: embedding can't work, hand off to a new tab.
   if (!isTerminalEmbeddable()) {
@@ -61,7 +64,6 @@ export function TerminalPage() {
   }
 
   const provisioning = session && !session.workspaceReady;
-  const left = session ? timeLeft(session.expiresAt) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">

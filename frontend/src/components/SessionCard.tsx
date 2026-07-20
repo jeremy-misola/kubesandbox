@@ -6,7 +6,7 @@ import { Card, TerminalChrome } from "@/components/ui/card";
 import { ConfirmDeleteDialog } from "@/components/ConfirmDeleteDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useDeleteSession } from "@/hooks/useSessions";
-import { timeLeft } from "@/lib/utils";
+import { useTimeLeft } from "@/hooks/useTimeLeft";
 import type { Session } from "@/lib/schemas";
 
 /** A session rendered as a live terminal window: chrome bar, dense spec
@@ -14,7 +14,7 @@ import type { Session } from "@/lib/schemas";
 export function SessionCard({ session }: { session: Session }) {
   const del = useDeleteSession();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const left = timeLeft(session.expiresAt);
+  const left = useTimeLeft(session.expiresAt);
 
   return (
     <Card className="flex flex-col overflow-hidden p-0">

@@ -16,25 +16,10 @@ import {
 } from "@/hooks/useSessions";
 import { ApiError, api } from "@/lib/api";
 import { queryKeys } from "@/lib/queryClient";
-import { cn } from "@/lib/utils";
+import { cn, difficultyTone } from "@/lib/utils";
 import { TTL, type CreateSessionResult } from "@/lib/schemas";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// Difficulty is metadata, not status: a quiet monochrome scale where only the
-// hardest tier earns the gold accent, keeping gold as the sole accent.
-function difficultyTone(difficulty: string): string {
-  switch (difficulty.toLowerCase()) {
-    case "easy":
-      return "border-border bg-muted/40 text-muted-foreground";
-    case "medium":
-      return "border-border bg-muted/40 text-foreground/90";
-    case "hard":
-      return "border-accent/40 bg-accent/10 text-accent";
-    default:
-      return "border-border bg-muted/40 text-muted-foreground";
-  }
-}
 
 const backLink = (
   <Link
@@ -182,7 +167,7 @@ export function ChallengeDetailPage() {
       </div>
 
       <section className="mt-10">
-        <p className="eyebrow mb-3 text-muted-foreground">Steps</p>
+        <p className="eyebrow mb-3 text-muted-foreground">Requirements</p>
         <StepList steps={data.steps} />
       </section>
 

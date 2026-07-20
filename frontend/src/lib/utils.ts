@@ -11,6 +11,23 @@ export function prefersReducedMotion(): boolean {
   );
 }
 
+/** Difficulty is metadata, not status: a quiet monochrome scale where only the
+ *  hardest tier earns the gold accent, keeping gold as the sole accent. Shared
+ *  by the challenge detail page and the in-session instructions panel so both
+ *  render the difficulty chip identically. */
+export function difficultyTone(difficulty: string): string {
+  switch (difficulty.toLowerCase()) {
+    case "easy":
+      return "border-border bg-muted/40 text-muted-foreground";
+    case "medium":
+      return "border-border bg-muted/40 text-foreground/90";
+    case "hard":
+      return "border-accent/40 bg-accent/10 text-accent";
+    default:
+      return "border-border bg-muted/40 text-muted-foreground";
+  }
+}
+
 /** Relative "time left" until an RFC3339 timestamp, e.g. "42m left". */
 export function timeLeft(expiresAt?: string): string | null {
   if (!expiresAt) return null;
