@@ -28,14 +28,20 @@ export function difficultyTone(difficulty: string): string {
   }
 }
 
-/** Relative "time left" until an RFC3339 timestamp, e.g. "42m left". */
+/** Live "time left" until an RFC3339 timestamp as a counting-down clock:
+ *  "12:04 left" under an hour, "1:05:30 left" past it. Seconds are floored so a
+ *  per-second tick shows each value once; pair with `useTimeLeft` to make it
+ *  count down. */
 export function timeLeft(expiresAt?: string): string | null {
   if (!expiresAt) return null;
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return null;
   if (ms <= 0) return "expired";
-  const mins = Math.round(ms / 60_000);
-  if (mins < 60) return `${mins}m left`;
-  const h = Math.floor(mins / 60);
-  return `${h}h ${mins % 60}m left`;
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const clock = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  return `${clock} left`;
 }
